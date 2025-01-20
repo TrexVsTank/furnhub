@@ -31,28 +31,28 @@ CREATE TABLE assets_floor (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
--- 테이블 프로젝트
-CREATE TABLE projects (
+-- 테이블 룸 (기존 프로젝트를 룸으로 변경)
+CREATE TABLE rooms (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
--- 테이블 프로젝트 바닥재
-CREATE TABLE project_floor (
+-- 테이블 룸 바닥재
+CREATE TABLE room_floor (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    project_id BIGINT NOT NULL,
+    room_id BIGINT NOT NULL,
     assets_floor_id BIGINT NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE,
     FOREIGN KEY (assets_floor_id) REFERENCES assets_floor(id) ON DELETE CASCADE
 );
 
 -- 테이블 벽
 CREATE TABLE walls (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    project_id BIGINT NOT NULL,
+    room_id BIGINT NOT NULL,
     start_x DOUBLE NOT NULL,
     start_y DOUBLE NOT NULL,
     end_x DOUBLE NOT NULL,
@@ -60,24 +60,24 @@ CREATE TABLE walls (
     thickness DOUBLE DEFAULT 10.0,
     color VARCHAR(7) DEFAULT '#000000',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+    FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
 );
 
 -- 테이블 닫힌 공간
 CREATE TABLE closed_areas (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    project_id BIGINT NOT NULL,
+    room_id BIGINT NOT NULL,
     area DOUBLE NOT NULL,
     center_x DOUBLE,
     center_y DOUBLE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+    FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
 );
 
--- 테이블 프로젝트 가구
-CREATE TABLE project_furniture (
+-- 테이블 룸 가구
+CREATE TABLE room_furniture (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    project_id BIGINT NOT NULL,
+    room_id BIGINT NOT NULL,
     asset_name VARCHAR(255) NOT NULL,
     position_x DOUBLE NOT NULL,
     position_y DOUBLE NOT NULL,
@@ -85,7 +85,7 @@ CREATE TABLE project_furniture (
     scale_x DOUBLE DEFAULT 1.0,
     scale_y DOUBLE DEFAULT 1.0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+    FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
 );
 
 -- 에셋 바닥재 삽입
