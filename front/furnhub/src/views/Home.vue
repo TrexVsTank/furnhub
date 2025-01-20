@@ -1,7 +1,9 @@
+<script setup>
+console.log("Welcome to Home Page");
+</script>
+
 <template>
-  <div class="container">
-    <h1>Welcome to Furnhub</h1>
-    <p>This is a simple test for global styles.</p>
-    <a href="#">Click here</a>
+  <div>
+    <h1>Home Page</h1>
   </div>
 </template>

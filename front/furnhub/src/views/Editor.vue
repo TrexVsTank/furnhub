@@ -1,26 +1,22 @@
+<script setup>
+import { onMounted, ref } from "vue";
+import { SVG } from "@svgdotjs/svg.js";
+
+const canvas = ref(null);
+
+onMounted(() => {
+  const draw = SVG().addTo(canvas.value).size("100%", "100%");
+  // 기본 그리기 작업
+  draw.rect(800, 400).fill("#e0e0e0").move(50, 50);
+});
+</script>
+
 <template>
-    <div class="editor">
-      <h1>Editor Mode</h1>
-      <p>Start creating your room layout.</p>
-      <button @click="saveAndSwitch">Save and Switch to Furniture Mode</button>
-    </div>
-  </template>
-  
-  <script setup>
-  import { useRouter } from "vue-router";
-  
-  const router = useRouter();
-  
-  const saveAndSwitch = () => {
-    // 저장 로직 추가 예정
-    router.push("/furniture");
-  };
-  </script>
-  
-  <style scoped>
-  .editor {
-    text-align: center;
-    margin-top: 50px;
-  }
-  </style>
-  
+  <div ref="canvas" style="width: 100%; height: 100%; border: 1px solid #ccc;"></div>
+</template>
+
+<style scoped>
+div {
+  position: relative;
+}
+</style>
