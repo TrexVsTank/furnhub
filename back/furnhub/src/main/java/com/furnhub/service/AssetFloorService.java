@@ -4,9 +4,9 @@ import com.furnhub.entity.AssetFloor;
 import java.util.List;
 
 public interface AssetFloorService {
-    AssetFloor createFloorAsset(AssetFloor asset);
-    AssetFloor getFloorAssetById(Long id);
-    List<AssetFloor> getAllFloorAssets();
-    AssetFloor updateFloorAsset(Long id, AssetFloor updatedAsset);
-    void deleteFloorAsset(Long id);
+    AssetFloor createAssetFloor(AssetFloor asset);
+    AssetFloor getAssetFloorById(Long id);
+    List<AssetFloor> getAllAssetFloors();
+    AssetFloor updateAssetFloor(Long id, AssetFloor updatedAsset);
+    void deleteAssetFloor(Long id);
 }

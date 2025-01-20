@@ -17,31 +17,31 @@ public class AssetFurnitureServiceImpl implements AssetFurnitureService {
     }
 
     @Override
-    public AssetFurniture createFurnitureAsset(AssetFurniture asset) {
+    public AssetFurniture createAssetFurniture(AssetFurniture asset) {
         return furnitureRepository.save(asset);
     }
 
     @Override
-    public AssetFurniture getFurnitureAssetById(Long id) {
+    public AssetFurniture getAssetFurnitureById(Long id) {
         return furnitureRepository.findById(id).orElseThrow(() -> 
             new IllegalArgumentException("Furniture asset not found with id: " + id));
     }
 
     @Override
-    public List<AssetFurniture> getAllFurnitureAssets() {
+    public List<AssetFurniture> getAllAssetFurnitures() {
         return furnitureRepository.findAll();
     }
 
     @Override
-    public AssetFurniture updateFurnitureAsset(Long id, AssetFurniture updatedAsset) {
-        AssetFurniture existingAsset = getFurnitureAssetById(id);
+    public AssetFurniture updateAssetFurniture(Long id, AssetFurniture updatedAsset) {
+        AssetFurniture existingAsset = getAssetFurnitureById(id);
         existingAsset.setName(updatedAsset.getName());
         existingAsset.setFolderName(updatedAsset.getFolderName());
         return furnitureRepository.save(existingAsset);
     }
 
     @Override
-    public void deleteFurnitureAsset(Long id) {
+    public void deleteAssetFurniture(Long id) {
         furnitureRepository.deleteById(id);
     }
 }

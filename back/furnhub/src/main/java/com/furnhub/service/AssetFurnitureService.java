@@ -4,9 +4,9 @@ import com.furnhub.entity.AssetFurniture;
 import java.util.List;
 
 public interface AssetFurnitureService {
-    AssetFurniture createFurnitureAsset(AssetFurniture asset);
-    AssetFurniture getFurnitureAssetById(Long id);
-    List<AssetFurniture> getAllFurnitureAssets();
-    AssetFurniture updateFurnitureAsset(Long id, AssetFurniture updatedAsset);
-    void deleteFurnitureAsset(Long id);
+    AssetFurniture createAssetFurniture(AssetFurniture asset);
+    AssetFurniture getAssetFurnitureById(Long id);
+    List<AssetFurniture> getAllAssetFurnitures();
+    AssetFurniture updateAssetFurniture(Long id, AssetFurniture updatedAsset);
+    void deleteAssetFurniture(Long id);
 }

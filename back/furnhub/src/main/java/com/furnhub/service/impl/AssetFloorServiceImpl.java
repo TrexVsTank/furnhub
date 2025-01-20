@@ -17,31 +17,31 @@ public class AssetFloorServiceImpl implements AssetFloorService {
     }
 
     @Override
-    public AssetFloor createFloorAsset(AssetFloor asset) {
+    public AssetFloor createAssetFloor(AssetFloor asset) {
         return floorRepository.save(asset);
     }
 
     @Override
-    public AssetFloor getFloorAssetById(Long id) {
+    public AssetFloor getAssetFloorById(Long id) {
         return floorRepository.findById(id).orElseThrow(() -> 
             new IllegalArgumentException("Floor asset not found with id: " + id));
     }
 
     @Override
-    public List<AssetFloor> getAllFloorAssets() {
+    public List<AssetFloor> getAllAssetFloors() {
         return floorRepository.findAll();
     }
 
     @Override
-    public AssetFloor updateFloorAsset(Long id, AssetFloor updatedAsset) {
-        AssetFloor existingAsset = getFloorAssetById(id);
+    public AssetFloor updateAssetFloor(Long id, AssetFloor updatedAsset) {
+        AssetFloor existingAsset = getAssetFloorById(id);
         existingAsset.setName(updatedAsset.getName());
         existingAsset.setTexturePath(updatedAsset.getTexturePath());
         return floorRepository.save(existingAsset);
     }
 
     @Override
-    public void deleteFloorAsset(Long id) {
+    public void deleteAssetFloor(Long id) {
         floorRepository.deleteById(id);
     }
 }
