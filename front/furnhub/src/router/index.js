@@ -5,8 +5,8 @@
 
   const routes = [
     { path: "/", name: "Home", component: Home },
-    { path: "/floor-plan-editor", name: "FloorPlanEditor", component: FloorPlanEditor }, // 경로 수정
-    { path: "/furniture-editor", name: "FurnitureEditor", component: FurnitureEditor }, // 경로 수정
+    { path: "/floor-plan-editor", name: "FloorPlanEditor", component: FloorPlanEditor },
+    { path: "/furniture-editor", name: "FurnitureEditor", component: FurnitureEditor },
   ];
 
   const router = createRouter({

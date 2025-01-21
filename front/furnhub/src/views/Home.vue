@@ -1,3 +1,7 @@
+<script setup>
+  import "@/styles/global.scss"; // SCSS 파일 임포트
+</script>
+
 <template>
   <div>
     <h1>홈</h1>

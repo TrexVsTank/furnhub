@@ -1,13 +1,11 @@
-// src/main.js
+//src.main.js
 import { createApp } from "vue";
+import { createPinia } from "pinia"; // Pinia 가져오기
 import App from "./App.vue";
 import router from "./router";
-import { createPinia } from "pinia";
-
-// 글로벌 스타일
-import "@/styles/global.scss";
 
 const app = createApp(App);
+app.use(createPinia()); // Pinia 등록
 app.use(router);
-app.use(createPinia());
+
 app.mount("#app");

@@ -1,7 +1,12 @@
+// src/views/FloorPlanEditor.vue
 <script setup>
 // 임포트
 import { onMounted, ref, reactive } from "vue"; 
 import { SVG } from "@svgdotjs/svg.js";
+import "@/styles/global.scss"; // SCSS 파일 임포트
+import "@/styles/FloorPlanEditor.scss"; // SCSS 파일 임포트
+
+// import { useFloorPlanStore } from "@/store/FloorPlanEditor.js";
 
 // 캔버스 관련 변수
 const canvas = ref(null); // Vue ref를 사용해 캔버스 DOM을 참조
@@ -92,23 +97,34 @@ const endPan = () => {
 
 // 줌 기능
 const zoomCanvas = (event) => {
-  const zoomFactor = 0.1;
-  const direction = event.deltaY > 0 ? 1 : -1;
+  const zoomFactor = 0.1; // 줌 비율
+  const direction = event.deltaY > 0 ? 1 : -1; // 줌 방향 (스크롤 위: 줌인, 아래: 줌아웃)
 
+  // 현재 마우스 커서의 SVG 좌표를 계산
+  const cursorPoint = draw.node.createSVGPoint();
+  cursorPoint.x = event.clientX;
+  cursorPoint.y = event.clientY;
+  const cursorSVGPoint = cursorPoint.matrixTransform(draw.node.getScreenCTM().inverse());
+
+  // 줌 후 새로운 뷰박스 크기 계산
   const newWidth = viewbox.width * (1 + direction * zoomFactor);
   const newHeight = viewbox.height * (1 + direction * zoomFactor);
 
-  viewbox.x += (viewbox.width - newWidth) / 2;
-  viewbox.y += (viewbox.height - newHeight) / 2;
+  // 커서 기준으로 뷰박스 이동 계산
+  const dx = (cursorSVGPoint.x - viewbox.x) * (newWidth / viewbox.width - 1);
+  const dy = (cursorSVGPoint.y - viewbox.y) * (newHeight / viewbox.height - 1);
+
+  viewbox.x -= dx;
+  viewbox.y -= dy;
 
   viewbox.width = newWidth;
   viewbox.height = newHeight;
 
   draw.viewbox(viewbox.x, viewbox.y, viewbox.width, viewbox.height);
 
-  // 줌 후 그리드 갱신
-  addGrid();
+  addGrid(); // 줌 후 그리드 갱신
 };
+
 
 // 선택된 개체 정보 설정
 const selectElement = (type, properties) => {
@@ -171,55 +187,4 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.editor {
-  display: flex;
-  height: 100vh;
-  width: 100%;
-  overflow: hidden; /* 스크롤 제거 */
-}
-
-.sidebar {
-  width: 200px;
-  height: 100%;
-  background-color: #f9f9f9;
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  box-sizing: border-box; /* 경계 포함 */
-}
-
-.sidebar.left {
-  border-right: 1px solid #ccc; /* 캔버스와의 경계 */
-}
-
-.sidebar.right {
-  border-left: 1px solid #ccc; /* 캔버스와의 경계 */
-}
-
-.sidebar h2 {
-  font-size: 18px;
-  margin-bottom: 10px;
-}
-
-.sidebar button {
-  padding: 10px;
-  background-color: #4caf50;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.sidebar button:hover {
-  background-color: #45a049;
-}
-
-.canvas {
-  flex: 1;
-  background-color: #fff;
-  cursor: grab;
-  overflow: hidden;
-  position: relative;
-}
 </style>
