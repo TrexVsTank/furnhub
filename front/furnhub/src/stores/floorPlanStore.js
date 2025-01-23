@@ -6,7 +6,10 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
   // === 기본 상태 관리 ===
   let draw = null;  // SVG 그리기 객체
   let labelLayer = null;  // 레이블을 담는 레이어 (텍스트, 키 포인트 등)
-  const toolState = reactive({ currentTool: "select" });  // 현재 선택된 도구 상태
+  const toolState = reactive({ 
+    currentTool: "select",
+    wallThickness: 100  // 기본 벽 두께 100mm
+  });  // 현재 선택된 도구 상태
   const viewbox = reactive({ x: -3000, y: -3000, width: 6000, height: 6000 });  // 화면 뷰박스 설정
   
   // === 벽 그리기 관련 상태 ===
@@ -117,20 +120,23 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     start: (coords) => {  // 벽 그리기 시작
       if (!isWithinBoundary(coords.x, coords.y)) return;
       wallStart = coords;
-      // 미리보기 선 생성
       wallPreview = draw.line(coords.x, coords.y, coords.x, coords.y)
-        .stroke({ width: 2, color: "blue", dasharray: "5,5" });
-      drawKey(coords.x, coords.y);  // 시작점 키 생성
-      lengthLabel = createLengthLabel("0.00", coords.x, coords.y);  // 길이 레이블 생성
+        .stroke({ width: viewbox.width * 0.01, color: "#999", dasharray: "5,5" });
+      lengthLabel = createLengthLabel("0.00", coords.x, coords.y);
     },
     
     preview: (coords) => {  // 벽 그리기 미리보기
-      if (!wallStart || !wallPreview) return;
-      // 수직/수평 제한된 좌표 계산
+      if (!wallStart) return;
+      if (!wallPreview) {
+        wallPreview = draw.line(wallStart.x, wallStart.y, wallStart.x, wallStart.y)
+          .stroke({ width: viewbox.width * 0.01, color: "#999", dasharray: "5,5" });
+        lengthLabel = createLengthLabel("0.00", wallStart.x, wallStart.y);
+      }
       const adjustedCoords = getOrthogonalPoint(wallStart, coords);
       wallPreview.plot(wallStart.x, wallStart.y, adjustedCoords.x, adjustedCoords.y);
       const distance = calculateDistance(wallStart.x, wallStart.y, adjustedCoords.x, adjustedCoords.y);
       updateLengthLabel(lengthLabel, distance, wallStart, adjustedCoords);
+      labelLayer.front();
     },
     
     finish: (coords) => {  // 벽 그리기 완료
@@ -138,8 +144,9 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       const adjustedCoords = getOrthogonalPoint(wallStart, coords);
       // 실제 벽 생성
       draw.line(wallStart.x, wallStart.y, adjustedCoords.x, adjustedCoords.y)
-        .stroke({ width: 100, color: "#999" });
-      drawKey(adjustedCoords.x, adjustedCoords.y);  // 끝점 키 생성
+        .stroke({ width: toolState.wallThickness, color: "#999" });
+      drawKey(wallStart.x, wallStart.y);
+      drawKey(adjustedCoords.x, adjustedCoords.y);
       
       // 길이 레이블 생성
       const distance = calculateDistance(wallStart.x, wallStart.y, adjustedCoords.x, adjustedCoords.y);
@@ -148,9 +155,26 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
         y: (wallStart.y + adjustedCoords.y) / 2
       };
       createLengthLabel(distance, midPoint.x, midPoint.y - 20);
+      labelLayer.front();
       
-      cleanupWallDrawing();  // 미리보기 정리
+      // 다음 벽을 위해 현재 끝점을 새로운 시작점으로 설정
+      wallStart = adjustedCoords;
+      
+      // 미리보기만 정리
+      if (wallPreview) {
+        wallPreview.remove();
+        wallPreview = null;
+      }
+      if (lengthLabel) {
+        lengthLabel.remove();
+        lengthLabel = null;
+      }
     }
+  };
+
+  // === 벽 두께 설정 함수 ===
+  const setWallThickness = (thickness) => {
+    toolState.wallThickness = Number(thickness);
   };
 
   // === 유틸리티 함수 ===
@@ -272,6 +296,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     initializeCanvas,
     executeToolEvent,
     zoomCanvas,
-    handleKeyDown
+    handleKeyDown,
+    setWallThickness,
   };
 });
