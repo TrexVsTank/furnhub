@@ -53,7 +53,19 @@ onMounted(() => {
         </div>
       </div>
       <div>
-        벽두께처럼 스냅거리 입력받을 부분
+        <label>스냅 거리 (mm)</label>
+        <input 
+          type="number" 
+          :value="store.toolState.snapDistance"
+          @input="store.setSnapDistance($event.target.value)"
+          min="1"
+          step="10"
+          placeholder="150"
+        >
+        <div>
+          <button @click="store.setSnapDistance(store.toolState.snapDistance - 10)">-</button>
+          <button @click="store.setSnapDistance(store.toolState.snapDistance + 10)">+</button>
+        </div>
       </div>
       <button @click="store.toolState.currentTool = 'rect'">사각형 툴</button>
       <button @click="store.toolState.currentTool = 'cut'">영역 자르기 툴</button>
