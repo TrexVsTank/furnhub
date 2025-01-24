@@ -38,20 +38,23 @@ onMounted(() => {
       <button @click="store.toolState.currentTool = 'select'">선택 툴</button>
       <button @click="store.toolState.currentTool = 'wall'">벽 툴</button>
       <div>
-      <label>벽 두께 (mm)</label>
-      <input 
-      type="number" 
-      :value="store.toolState.wallThickness"
-      @input="store.setWallThickness($event.target.value)"
-      min="1"
-      step="10"
-      placeholder="100"
-      >
-      <div>
-        <button @click="store.setWallThickness(store.toolState.wallThickness - 10)">-</button>
-        <button @click="store.setWallThickness(store.toolState.wallThickness + 10)">+</button>
+        <label>벽 두께 (mm)</label>
+        <input 
+        type="number" 
+        :value="store.toolState.wallThickness"
+        @input="store.setWallThickness($event.target.value)"
+        min="1"
+        step="10"
+        placeholder="100"
+        >
+        <div>
+          <button @click="store.setWallThickness(store.toolState.wallThickness - 10)">-</button>
+          <button @click="store.setWallThickness(store.toolState.wallThickness + 10)">+</button>
+        </div>
       </div>
-    </div>
+      <div>
+        벽두께처럼 스냅거리 입력받을 부분
+      </div>
       <button @click="store.toolState.currentTool = 'rect'">사각형 툴</button>
       <button @click="store.toolState.currentTool = 'cut'">영역 자르기 툴</button>
     </aside>

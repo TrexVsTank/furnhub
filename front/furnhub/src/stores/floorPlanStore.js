@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { SVG } from "@svgdotjs/svg.js";
 import { reactive } from "vue";
+import _ from 'lodash';
 
 export const useFloorPlanStore = defineStore("floorPlanStore", () => {
   // === 기본 상태 관리 ===
@@ -232,32 +233,73 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     };
   };
 
-  // 가장 가까운 스냅 포인트를 찾는 함수 수정
-  const findNearestSnapPoint = (point) => {
-    const SNAP_THRESHOLD = 100;
-    let minDistance = SNAP_THRESHOLD;
+  // === 캐시 시스템 ===
+  const cache = {
+    snapPoints: new Map(), // 스냅 포인트 캐시: 키(좌표) -> 값(스냅포인트) 매핑
+    nearbyWalls: new Map(), // 주변 벽 캐시: 특정 영역 내의 벽 객체들
+    viewportObjects: null, // 현재 뷰포트에 있는 모든 객체들
+    lastViewport: null // 마지막으로 캐시된 뷰포트 상태
+  };
+
+  // === 스냅 포인트 캐싱 함수 ===
+  const getCachedSnapPoints = (point, threshold) => {
+    const key = `${Math.floor(point.x/10)},${Math.floor(point.y/10)}`; // 10x10 그리드로 반올림하여 캐시 키 생성
+    // 캐시에 있으면 바로 반환
+    if (cache.snapPoints.has(key)) {
+      return cache.snapPoints.get(key);
+    }
+    // 캐시에 없으면 계산하고 저장
+    const snapPoint = findNearestSnapPoint(point, threshold);
+    cache.snapPoints.set(key, snapPoint);
+    return snapPoint;
+  };
+
+  // === 뷰포트 내 객체 캐싱 함수 ===
+  const getViewportObjects = () => {
+    const currentViewport = JSON.stringify(viewbox); // 현재 뷰포트 상태를 문자열로 변환
+    
+    // 뷰포트가 변경되지 않았으면 캐시된 객체 반환
+    if (cache.lastViewport === currentViewport) {
+      return cache.viewportObjects;
+    }
+
+    // 뷰포트 내 객체들을 새로 찾아서 캐시
+    cache.viewportObjects = {
+      walls: draw.find('line').filter(line => !line.hasClass('grid-line')), // 그리드 선을 제외한 모든 선(벽) 찾기
+      keys: draw.find('.key') // 모든 키 포인트 찾기
+    };
+    cache.lastViewport = currentViewport;
+    return cache.viewportObjects;
+  };
+
+  // === 쓰로틀링된 미리보기 함수 ===
+  // 50ms마다 한 번만 실행되도록 제한
+  const throttledPreview = _.throttle((coords) => {
+    wallControls.preview(coords);
+  }, 50);
+
+  // 가장 가까운 스냅 포인트를 찾는 함수
+  const findNearestSnapPoint = (point, threshold = 100) => {
+    const viewport = getViewportObjects();
+    let minDistance = threshold;
     let snapPoint = null;
 
-    // 키 포인트 체크
-    const keys = draw.find('.key');
-    keys.forEach(key => {
+    // 키 포인트 검사
+    viewport.keys.forEach(key => {
       const keyCenter = {
         x: key.cx(),
         y: key.cy()
       };
-      const distance = Math.sqrt(
-        Math.pow(point.x - keyCenter.x, 2) + 
-        Math.pow(point.y - keyCenter.y, 2)
-      );
+      // 피타고라스 정리로 거리 계산 (Math.hypot이 더 효율적)
+      const distance = Math.hypot(point.x - keyCenter.x, point.y - keyCenter.y);
       if (distance < minDistance) {
         minDistance = distance;
         snapPoint = keyCenter;
       }
     });
 
-    // 벽 위의 점 체크
-    const walls = draw.find('line').filter(line => !line.hasClass('grid-line'));
-    walls.forEach(wall => {
+    // 벽 위의 점 검사
+    viewport.walls.forEach(wall => {
       const pointOnWall = getPointOnWall(wall, point);
       if (pointOnWall.distance < minDistance) {
         minDistance = pointOnWall.distance;
@@ -365,10 +407,38 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     }
   };
 
-  // 도구 이벤트 실행 함수
+  // === 도구 이벤트 실행 함수 ===
   const executeToolEvent = (eventName, event) => {
     const tool = tools[toolState.currentTool];
-    if (tool?.[eventName]) tool[eventName](event);
+    if (tool?.[eventName]) {
+      if (eventName === 'onMouseMove') {
+        const coords = getSVGCoordinates(event);
+        // 벽 그리기 도구일 때만 쓰로틀링 적용
+        if (toolState.currentTool === 'wall') {
+          throttledPreview(coords);
+        } else {
+          tool[eventName](event);
+        }
+      } else {
+        tool[eventName](event);
+      }
+    }
+  };
+
+  // === 캐시 초기화 함수 ===
+  const clearCache = () => {
+    cache.snapPoints.clear();
+    cache.nearbyWalls.clear();
+    cache.viewportObjects = null;
+    cache.lastViewport = null;
+  };
+
+  // === 뷰박스 업데이트 함수 ===
+  const updateViewbox = (newViewbox) => {
+    Object.assign(viewbox, newViewbox);
+    // 뷰박스가 변경되면 캐시 초기화
+    clearCache();
+    draw.viewbox(viewbox.x, viewbox.y, viewbox.width, viewbox.height);
   };
 
   // ESC 키 처리
@@ -383,5 +453,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     zoomCanvas,
     handleKeyDown,
     setWallThickness,
+    clearCache,
+    updateViewbox,
   };
 });
