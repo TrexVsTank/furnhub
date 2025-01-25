@@ -334,7 +334,6 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     },
 
     // 벽 그리기 완료
-    // wallControls.finish 함수 수정
     finish: (coords) => {
       if (!wallStart || !coords) return;
       
@@ -359,20 +358,26 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
         return;
       }
       
-      // 실제 벽 생성
-      wallLayer.line(wallStart.x, wallStart.y, finalEnd.x, finalEnd.y)
-        .stroke({ width: toolState.wallThickness, color: "#999" });
+      // 교차점 찾기
+      const intersections = findIntersections(wallStart, finalEnd, walls);
       
-      // 키 추가
+      // 교차점이 있으면 기존 벽을 분할
+      if (intersections.length > 0) {
+        intersections.forEach(splitWallAtIntersection);
+        createWallWithIntersections(wallStart, finalEnd, intersections);
+      } else {
+        // 교차점이 없을 때만 새 벽과 레이블 추가
+        wallLayer.line(wallStart.x, wallStart.y, finalEnd.x, finalEnd.y)
+          .stroke({ width: toolState.wallThickness, color: "#999" });
+        const midPoint = {
+          x: (wallStart.x + finalEnd.x) / 2,
+          y: (wallStart.y + finalEnd.y) / 2
+        };
+        createLabel(distance, midPoint.x, midPoint.y);
+      }
       drawKeyPoint(wallStart.x, wallStart.y);
       drawKeyPoint(finalEnd.x, finalEnd.y);
       
-      // 레이블 추가
-      const midPoint = {
-        x: (wallStart.x + finalEnd.x) / 2,
-        y: (wallStart.y + finalEnd.y) / 2
-      };
-      createLabel(distance, midPoint.x, midPoint.y);
       
       // 이전 미리보기 제거
       wallPreview?.remove();
@@ -402,6 +407,177 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     x: Math.abs(end.x - start.x) > Math.abs(end.y - start.y) ? end.x : start.x,
     y: Math.abs(end.x - start.x) > Math.abs(end.y - start.y) ? start.y : end.y
   });
+
+  /**
+   * 두 선분의 교차점을 계산
+   * @param {Object} line1Start - 첫 번째 선분 시작점 {x, y}
+   * @param {Object} line1End - 첫 번째 선분 끝점 {x, y}
+   * @param {Object} line2Start - 두 번째 선분 시작점 {x, y}
+   * @param {Object} line2End - 두 번째 선분 끝점 {x, y}
+   * @returns {Object|null} 교차점 {x, y} 또는 교차하지 않으면 null
+   */
+  const getIntersectionPoint = (line1Start, line1End, line2Start, line2End) => {
+    const denominator = (line2End.y - line2Start.y) * (line1End.x - line1Start.x) -
+                      (line2End.x - line2Start.x) * (line1End.y - line1Start.y);
+                      
+    if (denominator === 0) return null;
+
+    const ua = ((line2End.x - line2Start.x) * (line1Start.y - line2Start.y) -
+                (line2End.y - line2Start.y) * (line1Start.x - line2Start.x)) / denominator;
+    const ub = ((line1End.x - line1Start.x) * (line1Start.y - line2Start.y) -
+                (line1End.y - line1Start.y) * (line1Start.x - line2Start.x)) / denominator;
+
+    if (ua < 0 || ua > 1 || ub < 0 || ub > 1) return null;
+
+    return {
+      x: line1Start.x + ua * (line1End.x - line1Start.x),
+      y: line1Start.y + ua * (line1End.y - line1Start.y)
+    };
+  };
+
+
+  /**
+   * 기존 벽과의 교차점들을 찾아서 정렬
+   * @param {Object} newStart - 새 벽 시작점 {x, y}
+   * @param {Object} newEnd - 새 벽 끝점 {x, y}
+   * @param {Array} existingWalls - 기존 벽 배열
+   * @returns {Array} 정렬된 교차점 배열 [{x, y}]
+   */
+  const findIntersections = (newStart, newEnd, existingWalls) => {
+    const intersections = [];
+  
+    existingWalls.forEach(wall => {
+      const wallStart = { x: wall.attr('x1'), y: wall.attr('y1') };
+      const wallEnd = { x: wall.attr('x2'), y: wall.attr('y2') };
+  
+      const intersection = getIntersectionPoint(newStart, newEnd, wallStart, wallEnd);
+      if (intersection) {
+        // 해당 벽의 레이블 제거
+        const labels = labelLayer.find('.length-label');
+        labels.forEach(label => {
+          const labelX = parseFloat(label.attr('x'));
+          const labelY = parseFloat(label.attr('y'));
+  
+          if (isPointNearLine(labelX, labelY, wallStart, wallEnd)) {
+            label.remove();
+          }
+        });
+  
+        intersections.push({
+          point: intersection,
+          wall: wall
+        });
+      }
+    });
+  
+    return intersections.sort((a, b) => {
+      const distA = Math.sqrt(
+        Math.pow(a.point.x - newStart.x, 2) + 
+        Math.pow(a.point.y - newStart.y, 2)
+      );
+      const distB = Math.sqrt(
+        Math.pow(b.point.x - newStart.x, 2) + 
+        Math.pow(b.point.y - newStart.y, 2)
+      );
+      return distA - distB;
+    });
+  };
+
+  /**
+   * 교차점에서 기존 벽을 분할
+   * @param {Object} intersection - 교차점 정보 {point, wall}
+   */
+  const splitWallAtIntersection = (intersection) => {
+    const { point, wall } = intersection;
+    const wallStart = { x: wall.attr('x1'), y: wall.attr('y1') };
+    const wallEnd = { x: wall.attr('x2'), y: wall.attr('y2') };
+  
+    // 해당 벽과 관련된 레이블 제거
+    const labels = labelLayer.find('.length-label');
+    labels.forEach(label => {
+      const labelX = parseFloat(label.attr('x'));
+      const labelY = parseFloat(label.attr('y'));
+  
+      if (isPointNearLine(labelX, labelY, wallStart, wallEnd)) {
+        label.remove();
+      }
+    });
+  
+    wall.remove();
+  
+    // 새 벽 생성 및 레이블 추가
+    if (calculateDistance(wallStart, point) > 0) {
+      wallLayer.line(wallStart.x, wallStart.y, point.x, point.y)
+        .stroke({ width: toolState.wallThickness, color: "#999" });
+      const distance1 = calculateDistance(wallStart, point);
+      createLabel(distance1, (wallStart.x + point.x) / 2, (wallStart.y + point.y) / 2);
+    }
+  
+    if (calculateDistance(point, wallEnd) > 0) {
+      wallLayer.line(point.x, point.y, wallEnd.x, wallEnd.y)
+        .stroke({ width: toolState.wallThickness, color: "#999" });
+      const distance2 = calculateDistance(point, wallEnd);
+      createLabel(distance2, (point.x + wallEnd.x) / 2, (point.y + wallEnd.y) / 2);
+    }
+  
+    drawKeyPoint(point.x, point.y);
+  };
+
+  /**
+   * 점이 선분 근처에 있는지 확인
+   * @param {number} px - 점의 x좌표
+   * @param {number} py - 점의 y좌표
+   * @param {Object} lineStart - 선분 시작점 {x, y}
+   * @param {Object} lineEnd - 선분 끝점 {x, y}
+   * @returns {boolean} 점이 선분 근처면 true
+   */
+  const isPointNearLine = (px, py, lineStart, lineEnd) => {
+    const buffer = toolState.wallThickness;
+    
+    // 선분의 길이 계산
+    const lineLength = Math.sqrt(
+      Math.pow(lineEnd.x - lineStart.x, 2) + 
+      Math.pow(lineEnd.y - lineStart.y, 2)
+    );
+    
+    // 점과 선분 양 끝점 사이의 거리 합
+    const d1 = Math.sqrt(Math.pow(px - lineStart.x, 2) + Math.pow(py - lineStart.y, 2));
+    const d2 = Math.sqrt(Math.pow(px - lineEnd.x, 2) + Math.pow(py - lineEnd.y, 2));
+    
+    // 점이 선분 위에 있는지 확인 (거리 합이 선분 길이와 거의 같으면)
+    const tolerance = buffer;
+    return Math.abs(d1 + d2 - lineLength) <= tolerance;
+  };
+
+
+  /**
+   * 교차점들을 고려하여 새 벽 생성
+   * @param {Object} start - 시작점 {x, y}
+   * @param {Object} end - 끝점 {x, y}
+   * @param {Array} intersections - 교차점 배열
+   */
+  const createWallWithIntersections = (start, end, intersections) => {
+    // 새 벽 경로 상의 기존 레이블 제거
+    const existingLabels = labelLayer.find('.length-label');
+    existingLabels.forEach(label => {
+      const labelX = parseFloat(label.attr('x'));
+      const labelY = parseFloat(label.attr('y'));
+      if (isPointNearLine(labelX, labelY, start, end)) {
+        label.remove();
+      }
+    });
+  
+    let currentStart = start;
+    [...intersections, { point: end }].forEach(({ point }) => {
+      if (calculateDistance(currentStart, point) > 1) {
+        wallLayer.line(currentStart.x, currentStart.y, point.x, point.y)
+          .stroke({ width: toolState.wallThickness, color: "#999" });
+        const distance = calculateDistance(currentStart, point);
+        createLabel(distance, (currentStart.x + point.x) / 2, (currentStart.y + point.y) / 2);
+      }
+      currentStart = point;
+    });
+  };
 
   /**
    * 현재 점에서 가장 가까운 스냅 포인트를 찾음
