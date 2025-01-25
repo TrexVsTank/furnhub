@@ -359,20 +359,20 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
         return;
       }
       
-      
       // 실제 벽 생성
       wallLayer.line(wallStart.x, wallStart.y, finalEnd.x, finalEnd.y)
         .stroke({ width: toolState.wallThickness, color: "#999" });
       
-      // 키포인트와 레이블 추가
+      // 키 추가
       drawKeyPoint(wallStart.x, wallStart.y);
       drawKeyPoint(finalEnd.x, finalEnd.y);
       
+      // 레이블 추가
       const midPoint = {
         x: (wallStart.x + finalEnd.x) / 2,
         y: (wallStart.y + finalEnd.y) / 2
       };
-      createLabel(distance, midPoint.x, midPoint.y - 20);
+      createLabel(distance, midPoint.x, midPoint.y);
       
       // 이전 미리보기 제거
       wallPreview?.remove();
@@ -630,7 +630,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     if (!label) return;
     const midX = (start.x + end.x) / 2;  // 벽의 중간 x좌표
     const midY = (start.y + end.y) / 2;  // 벽의 중간 y좌표
-    label.text(`${distance}mm`).center(midX, midY - 20);  // 위치와 텍스트 갱신
+    label.text(`${distance}mm`).center(midX, midY);  // 위치와 텍스트 갱신
   };
 
   /**
