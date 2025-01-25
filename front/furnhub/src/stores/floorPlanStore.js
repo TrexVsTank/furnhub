@@ -12,6 +12,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
   const toolState = reactive({    
     currentTool: "select",        // 현재 선택된 도구 (기본값: 선택 도구)
     wallThickness: 100,          // 벽 두께 (단위: mm)
+    snapDistance: 150,          // 스냅 범위 (단위: mm)
   });
   
   // 화면 보기 설정을 위한 반응형 객체
@@ -61,11 +62,17 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       }).filter(wall => wall !== null), // null 제거
 
       // 모든 레이블(텍스트)의 정보 저장
-      labels: labelLayer.find('.length-label').map(label => ({
-        text: label.text().replace('mm', ''),
-        x: label.attr('x'),
-        y: label.attr('y')
-      })),
+      labels: labelLayer.find('.length-label').map(label => {
+        const text = label.text().replace('mm', '');
+        // 빈 텍스트나 0인 레이블은 저장하지 않음
+        if (!text || text === '0') return null;
+        return {
+          text: text,
+          x: label.attr('x'),
+          y: label.attr('y')
+        };
+      }).filter(label => label !== null),
+
       // 모든 키포인트(점)의 정보 저장
       keyPoints: labelLayer.find('.key').map(key => ({
         x: key.cx(),
@@ -88,6 +95,9 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     // 기존 요소들 모두 제거
     wallLayer.children().forEach(child => child.remove());
     labelLayer.children().forEach(child => child.remove());
+
+    // 미리보기 상태 초기화
+    cleanupPreview();
 
     // 벽 다시 그리기
     state.walls.forEach(wall => {
@@ -158,7 +168,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     labelLayer.front();
   };
 
-  // === 그리드 시스템 ===
+  // === 그리드 생성 ===
   /**
    * 그리드(모눈종이) 그리기 함수
    * - 작은 격자: 100mm 간격, 얇은 선
@@ -282,8 +292,12 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     start: (coords) => {
       if (!isWithinBoundary(coords)) return;  // 경계 밖이면 그리기 중단
       
+      // 시작점 스냅
+      const walls = wallLayer.children();
+      const snappedStart = getSnapPoint(coords, walls, true);
+
       // 시작점 설정 및 미리보기 요소 생성
-      wallStart = coords;
+      wallStart = snappedStart;
       wallPreview = draw.line(wallStart.x, wallStart.y, wallStart.x, wallStart.y)
         .stroke({ width: viewbox.width * 0.01, color: "#999", dasharray: "5,5" });
       lengthLabel = createLabel("0.00", wallStart.x, wallStart.y);
@@ -295,60 +309,85 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       
       // 직각이 되도록 보정된 끝점 계산
       const orthogonalEnd = getOrthogonalPoint(wallStart, coords);
+
+      // 스냅된 점 계산 (직각 제한 이후)
+      const walls = wallLayer.children();
+      const snappedEnd = getSnapPoint(orthogonalEnd, walls);
+
+      // 가로/세로 중 더 가까운 쪽으로 강제
+      const finalEnd = {
+        x: Math.abs(snappedEnd.x - wallStart.x) > Math.abs(snappedEnd.y - wallStart.y) 
+          ? snappedEnd.x : wallStart.x,
+        y: Math.abs(snappedEnd.x - wallStart.x) > Math.abs(snappedEnd.y - wallStart.y) 
+          ? wallStart.y : snappedEnd.y
+      };
+
       // 미리보기 선 업데이트
       wallPreview?.plot(
         wallStart.x, wallStart.y,
-        orthogonalEnd.x, orthogonalEnd.y
+        finalEnd.x, finalEnd.y
       );
 
       // 길이 레이블 업데이트
-      const distance = calculateDistance(wallStart, orthogonalEnd);
-      updateLabel(lengthLabel, distance, wallStart, orthogonalEnd);
+      const distance = calculateDistance(wallStart, finalEnd);
+      updateLabel(lengthLabel, distance, wallStart, finalEnd);
     },
 
     // 벽 그리기 완료
     // wallControls.finish 함수 수정
-  finish: (coords) => {
-    if (!wallStart || !coords) return;
-    
-    // 직각이 되도록 보정된 끝점 계산
-    const orthogonalEnd = getOrthogonalPoint(wallStart, coords);
-    const distance = calculateDistance(wallStart, orthogonalEnd);
-    
-    // 거리가 0이면 벽 생성하지 않음
-    if (distance === 0) {
-      cleanupPreview();
-      wallStart = null;
-      return;
+    finish: (coords) => {
+      if (!wallStart || !coords) return;
+      
+      // 직각이 되도록 보정된 끝점 계산
+      const orthogonalEnd = getOrthogonalPoint(wallStart, coords);
+      const walls = wallLayer.children();
+      const snappedEnd = getSnapPoint(orthogonalEnd, walls);
+      
+      const finalEnd = {
+        x: Math.abs(snappedEnd.x - wallStart.x) > Math.abs(snappedEnd.y - wallStart.y) 
+          ? snappedEnd.x : wallStart.x,
+        y: Math.abs(snappedEnd.x - wallStart.x) > Math.abs(snappedEnd.y - wallStart.y) 
+          ? wallStart.y : snappedEnd.y
+      };
+
+      const distance = calculateDistance(wallStart, finalEnd);
+      
+      // 거리가 0이면 벽 생성하지 않음
+      if (distance === 0) {
+        cleanupPreview();
+        wallStart = null;
+        return;
+      }
+      
+      
+      // 실제 벽 생성
+      wallLayer.line(wallStart.x, wallStart.y, finalEnd.x, finalEnd.y)
+        .stroke({ width: toolState.wallThickness, color: "#999" });
+      
+      // 키포인트와 레이블 추가
+      drawKeyPoint(wallStart.x, wallStart.y);
+      drawKeyPoint(finalEnd.x, finalEnd.y);
+      
+      const midPoint = {
+        x: (wallStart.x + finalEnd.x) / 2,
+        y: (wallStart.y + finalEnd.y) / 2
+      };
+      createLabel(distance, midPoint.x, midPoint.y - 20);
+      
+      // 이전 미리보기 제거
+      wallPreview?.remove();
+      lengthLabel?.remove();
+      
+      // 다음 벽을 위한 설정
+      wallStart = finalEnd;
+      
+      wallPreview = draw.line(wallStart.x, wallStart.y, wallStart.x, wallStart.y)
+        .stroke({ width: viewbox.width * 0.01, color: "#999", dasharray: "5,5" });
+      lengthLabel = createLabel("0", wallStart.x, wallStart.y);
+      
+      labelLayer.front();
+      saveState();
     }
-    
-    // 실제 벽 생성
-    wallLayer.line(wallStart.x, wallStart.y, orthogonalEnd.x, orthogonalEnd.y)
-      .stroke({ width: toolState.wallThickness, color: "#999" });
-    
-    // 키포인트와 레이블 추가
-    drawKeyPoint(wallStart.x, wallStart.y);
-    drawKeyPoint(orthogonalEnd.x, orthogonalEnd.y);
-    
-    const midPoint = {
-      x: (wallStart.x + orthogonalEnd.x) / 2,
-      y: (wallStart.y + orthogonalEnd.y) / 2
-    };
-    createLabel(distance, midPoint.x, midPoint.y - 20);
-    
-    // 이전 미리보기 제거
-    wallPreview?.remove();
-    lengthLabel?.remove();
-    
-    // 다음 벽을 위한 설정
-    wallStart = orthogonalEnd;
-    wallPreview = draw.line(wallStart.x, wallStart.y, wallStart.x, wallStart.y)
-      .stroke({ width: viewbox.width * 0.01, color: "#999", dasharray: "5,5" });
-    lengthLabel = createLabel("0", wallStart.x, wallStart.y);
-    
-    labelLayer.front();
-    saveState();
-  }
   };
 
   // === 유틸리티 함수 === 
@@ -363,6 +402,129 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     x: Math.abs(end.x - start.x) > Math.abs(end.y - start.y) ? end.x : start.x,
     y: Math.abs(end.x - start.x) > Math.abs(end.y - start.y) ? start.y : end.y
   });
+
+  /**
+   * 현재 점에서 가장 가까운 스냅 포인트를 찾음
+   * - 벽의 시작점, 끝점, 중간점 중 현재 점과 가장 가까운 점 반환
+   * - 설정된 스냅 범위보다 멀면 현재 점 그대로 반환
+   * @param {Object} currentPoint - 현재 점 {x, y}
+   * @param {Array} walls - 벽 객체들의 배열
+   * @param {boolean} isStart - 시작점 여부
+   * @returns {Object} 스냅된 점 {x, y}
+   */
+  const getSnapPoint = (currentPoint, walls, isStart = false) => {
+    
+    const SNAP_THRESHOLD = toolState.snapDistance;
+
+    if (isStart) {
+      // 1. 먼저 키포인트에 대해 스냅 시도
+      let closestKeyPoint = null;
+      let minKeyDistance = SNAP_THRESHOLD;
+      
+      walls.forEach(wall => {
+        const keyPoints = [
+          { x: wall.attr('x1'), y: wall.attr('y1') },
+          { x: wall.attr('x2'), y: wall.attr('y2') }
+        ];
+        
+        keyPoints.forEach(point => {
+          const distance = Math.sqrt(
+            Math.pow(point.x - currentPoint.x, 2) + 
+            Math.pow(point.y - currentPoint.y, 2)
+          );
+          
+          if (distance < minKeyDistance) {
+            minKeyDistance = distance;
+            closestKeyPoint = point;
+          }
+        });
+      });
+      
+      // 키포인트에 스냅되면 바로 반환
+      if (closestKeyPoint) return closestKeyPoint;
+      
+      // 2. 키포인트 스냅 실패시 연장선 스냅 시도
+      let closestPerp = null;
+      let minPerpDistance = SNAP_THRESHOLD;
+      
+      walls.forEach(wall => {
+        const start = { x: wall.attr('x1'), y: wall.attr('y1') };
+        const end = { x: wall.attr('x2'), y: wall.attr('y2') };
+        
+        const isHorizontal = Math.abs(start.y - end.y) < Math.abs(start.x - end.x);
+        const perpPoint = isHorizontal 
+          ? { x: currentPoint.x, y: start.y }
+          : { x: start.x, y: currentPoint.y };
+          
+        const inRange = isHorizontal
+          ? perpPoint.x >= Math.min(start.x, end.x) && 
+            perpPoint.x <= Math.max(start.x, end.x)
+          : perpPoint.y >= Math.min(start.y, end.y) &&
+            perpPoint.y <= Math.max(start.y, end.y);
+            
+        if (inRange) {
+          const distance = Math.sqrt(
+            Math.pow(perpPoint.x - currentPoint.x, 2) + 
+            Math.pow(perpPoint.y - currentPoint.y, 2)
+          );
+          
+          if (distance < minPerpDistance) {
+            minPerpDistance = distance;
+            closestPerp = perpPoint;
+          }
+        }
+      });
+      
+      return closestPerp || currentPoint;
+    }
+
+    // 시작점이 아닐 경우 키 우선 적용 안함
+    let closestPoint = null;
+    let minDistance = SNAP_THRESHOLD;
+
+    walls.forEach(wall => {
+      // 시작점, 끝점, 중간점 계산
+      const start = { x: wall.attr('x1'), y: wall.attr('y1') };
+      const end = { x: wall.attr('x2'), y: wall.attr('y2') };
+      const mid = {
+        x: (start.x + end.x) / 2,
+        y: (start.y + end.y) / 2
+      };
+      
+      // 벽에 수직인 점 계산
+      const isHorizontal = Math.abs(start.y - end.y) < Math.abs(start.x - end.x);
+      const perpendicularPoint = isHorizontal 
+        ? { x: currentPoint.x, y: start.y }
+        : { x: start.x, y: currentPoint.y };
+
+      // 수직인 점이 벽의 범위 내에 있는지 확인
+      const inRange = isHorizontal
+        ? perpendicularPoint.x >= Math.min(start.x, end.x) && 
+          perpendicularPoint.x <= Math.max(start.x, end.x)
+        : perpendicularPoint.y >= Math.min(start.y, end.y) &&
+          perpendicularPoint.y <= Math.max(start.y, end.y);
+
+      const points = [start, end, mid];
+      if (inRange) {
+        points.push(perpendicularPoint);
+      }
+
+      // 각 점과의 거리 체크
+      points.forEach(point => {
+        const distance = Math.sqrt(
+          Math.pow(point.x - currentPoint.x, 2) + 
+          Math.pow(point.y - currentPoint.y, 2)
+        );
+
+        if (distance < minDistance) {
+          minDistance = distance;
+          closestPoint = point;
+        }
+      });
+    });
+
+    return closestPoint || currentPoint;
+  };
 
   /**
    * 점이 허용된 그리기 영역(-50m ~ 50m) 안에 있는지 검사
@@ -548,6 +710,12 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       const newThickness = Number(thickness);
       if (newThickness > 0) {
         toolState.wallThickness = newThickness;
+      }
+    },
+    setSnapDistance: (distance) => {    // 스냅 거리 설정
+      const newDistance = Number(distance);
+      if (newDistance > 0) {
+        toolState.snapDistance = newDistance;
       }
     },
     undo,                    // 실행 취소
