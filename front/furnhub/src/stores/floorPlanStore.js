@@ -351,12 +351,12 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
 
       const distance = calculateDistance(wallStart, finalEnd);
       
-      // 거리가 0이면 벽 생성하지 않음
-      if (distance === 0) {
-        cleanupPreview();
-        wallStart = null;
-        return;
-      }
+      // // 거리가 0이면 벽 생성하지 않음
+      // if (distance === 0) {
+      //   cleanupPreview();
+      //   wallStart = null;
+      //   return;
+      // }
       
       // 교차점 찾기
       const intersections = findIntersections(wallStart, finalEnd, walls);
@@ -396,6 +396,24 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
   };
 
   // === 유틸리티 함수 === 
+  
+  /**
+   * 좌표값을 1mm 단위로 반올림
+   * @param {number} value - 보정할 값
+   * @returns {number} 1mm 단위로 반올림된 값
+   */
+  const snapToMillimeter = (value) => Math.round(value / 1) * 1; // 1mm 단위로 보정
+
+  /**
+   * 점의 좌표를 1mm 단위로 보정
+   * @param {Object} point - 점 객체 {x, y}
+   * @returns {Object} 보정된 점 객체 {x, y}
+   */
+  const roundPoint = (point) => ({
+    x: snapToMillimeter(point.x),
+    y: snapToMillimeter(point.y),
+  });
+
   /**
    * 직각 도구: 두 점이 이루는 선이 수직/수평이 되도록 보정
    * - 가로/세로 거리 중 더 긴 쪽만 움직이고, 짧은 쪽은 고정
@@ -403,7 +421,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
    * @param {Object} end - 끝점 {x, y}
    * @returns {Object} 보정된 끝점 {x, y}
    */
-  const getOrthogonalPoint = (start, end) => ({
+  const getOrthogonalPoint = (start, end) => roundPoint({
     x: Math.abs(end.x - start.x) > Math.abs(end.y - start.y) ? end.x : start.x,
     y: Math.abs(end.x - start.x) > Math.abs(end.y - start.y) ? start.y : end.y
   });
@@ -429,10 +447,10 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
 
     if (ua < 0 || ua > 1 || ub < 0 || ub > 1) return null;
 
-    return {
+    return roundPoint({
       x: line1Start.x + ua * (line1End.x - line1Start.x),
       y: line1Start.y + ua * (line1End.y - line1Start.y)
-    };
+    });
   };
 
 
@@ -492,16 +510,16 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     const wallStart = { x: wall.attr('x1'), y: wall.attr('y1') };
     const wallEnd = { x: wall.attr('x2'), y: wall.attr('y2') };
   
-    // 해당 벽과 관련된 레이블 제거
-    const labels = labelLayer.find('.length-label');
-    labels.forEach(label => {
-      const labelX = parseFloat(label.attr('x'));
-      const labelY = parseFloat(label.attr('y'));
+    // // 해당 벽과 관련된 레이블 제거
+    // const labels = labelLayer.find('.length-label');
+    // labels.forEach(label => {
+    //   const labelX = parseFloat(label.attr('x'));
+    //   const labelY = parseFloat(label.attr('y'));
   
-      if (isPointNearLine(labelX, labelY, wallStart, wallEnd)) {
-        label.remove();
-      }
-    });
+    //   if (isPointNearLine(labelX, labelY, wallStart, wallEnd)) {
+    //     label.remove();
+    //   }
+    // });
   
     wall.remove();
   
@@ -559,13 +577,13 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
   const createWallWithIntersections = (start, end, intersections) => {
     // 새 벽 경로 상의 기존 레이블 제거
     const existingLabels = labelLayer.find('.length-label');
-    existingLabels.forEach(label => {
-      const labelX = parseFloat(label.attr('x'));
-      const labelY = parseFloat(label.attr('y'));
-      if (isPointNearLine(labelX, labelY, start, end)) {
-        label.remove();
-      }
-    });
+    // existingLabels.forEach(label => {
+    //   const labelX = parseFloat(label.attr('x'));
+    //   const labelY = parseFloat(label.attr('y'));
+    //   if (isPointNearLine(labelX, labelY, start, end)) {
+    //     label.remove();
+    //   }
+    // });
   
     let currentStart = start;
     [...intersections, { point: end }].forEach(({ point }) => {
@@ -589,18 +607,17 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
    * @returns {Object} 스냅된 점 {x, y}
    */
   const getSnapPoint = (currentPoint, walls, isStart = false) => {
-    
+    currentPoint = roundPoint(currentPoint);
     const SNAP_THRESHOLD = toolState.snapDistance;
-
+   
     if (isStart) {
-      // 1. 먼저 키포인트에 대해 스냅 시도
       let closestKeyPoint = null;
       let minKeyDistance = SNAP_THRESHOLD;
       
       walls.forEach(wall => {
         const keyPoints = [
-          { x: wall.attr('x1'), y: wall.attr('y1') },
-          { x: wall.attr('x2'), y: wall.attr('y2') }
+          roundPoint({ x: wall.attr('x1'), y: wall.attr('y1') }),
+          roundPoint({ x: wall.attr('x2'), y: wall.attr('y2') })
         ];
         
         keyPoints.forEach(point => {
@@ -616,21 +633,19 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
         });
       });
       
-      // 키포인트에 스냅되면 바로 반환
       if (closestKeyPoint) return closestKeyPoint;
       
-      // 2. 키포인트 스냅 실패시 연장선 스냅 시도
       let closestPerp = null;
       let minPerpDistance = SNAP_THRESHOLD;
       
       walls.forEach(wall => {
-        const start = { x: wall.attr('x1'), y: wall.attr('y1') };
-        const end = { x: wall.attr('x2'), y: wall.attr('y2') };
+        const start = roundPoint({ x: wall.attr('x1'), y: wall.attr('y1') });
+        const end = roundPoint({ x: wall.attr('x2'), y: wall.attr('y2') });
         
         const isHorizontal = Math.abs(start.y - end.y) < Math.abs(start.x - end.x);
-        const perpPoint = isHorizontal 
+        const perpPoint = roundPoint(isHorizontal 
           ? { x: currentPoint.x, y: start.y }
-          : { x: start.x, y: currentPoint.y };
+          : { x: start.x, y: currentPoint.y });
           
         const inRange = isHorizontal
           ? perpPoint.x >= Math.min(start.x, end.x) && 
@@ -653,54 +668,49 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       
       return closestPerp || currentPoint;
     }
-
-    // 시작점이 아닐 경우 키 우선 적용 안함
+   
     let closestPoint = null;
     let minDistance = SNAP_THRESHOLD;
-
+   
     walls.forEach(wall => {
-      // 시작점, 끝점, 중간점 계산
-      const start = { x: wall.attr('x1'), y: wall.attr('y1') };
-      const end = { x: wall.attr('x2'), y: wall.attr('y2') };
-      const mid = {
+      const start = roundPoint({ x: wall.attr('x1'), y: wall.attr('y1') });
+      const end = roundPoint({ x: wall.attr('x2'), y: wall.attr('y2') });
+      const mid = roundPoint({
         x: (start.x + end.x) / 2,
         y: (start.y + end.y) / 2
-      };
+      });
       
-      // 벽에 수직인 점 계산
       const isHorizontal = Math.abs(start.y - end.y) < Math.abs(start.x - end.x);
-      const perpendicularPoint = isHorizontal 
+      const perpendicularPoint = roundPoint(isHorizontal 
         ? { x: currentPoint.x, y: start.y }
-        : { x: start.x, y: currentPoint.y };
-
-      // 수직인 점이 벽의 범위 내에 있는지 확인
+        : { x: start.x, y: currentPoint.y });
+   
       const inRange = isHorizontal
         ? perpendicularPoint.x >= Math.min(start.x, end.x) && 
           perpendicularPoint.x <= Math.max(start.x, end.x)
         : perpendicularPoint.y >= Math.min(start.y, end.y) &&
           perpendicularPoint.y <= Math.max(start.y, end.y);
-
+   
       const points = [start, end, mid];
       if (inRange) {
         points.push(perpendicularPoint);
       }
-
-      // 각 점과의 거리 체크
+   
       points.forEach(point => {
         const distance = Math.sqrt(
           Math.pow(point.x - currentPoint.x, 2) + 
           Math.pow(point.y - currentPoint.y, 2)
         );
-
+   
         if (distance < minDistance) {
           minDistance = distance;
           closestPoint = point;
         }
       });
     });
-
-    return closestPoint || currentPoint;
-  };
+   
+    return closestPoint ? roundPoint(closestPoint) : currentPoint;
+   };
 
   /**
    * 점이 허용된 그리기 영역(-50m ~ 50m) 안에 있는지 검사
@@ -717,10 +727,12 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
    * @returns {string} 거리(m) - 소수점 2자리까지
    */
   const calculateDistance = (start, end) => {
-    return Math.sqrt(
+    start = roundPoint(start);
+    end = roundPoint(end);
+    return Math.round(Math.sqrt(
       Math.pow(end.x - start.x, 2) + 
       Math.pow(end.y - start.y, 2)
-    ).toFixed(0); // 정수로 반올림
+    )).toString();
   }
 
   /**
@@ -789,9 +801,11 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       .font({ size: viewbox.width * 0.025, anchor: "middle" })  // 크기와 중앙 정렬
       .fill("#000")  // 검은색 글자
       .center(x, y)  // 위치 설정
-      .addClass("length-label");  // 크기 조절을 위한 클래스
+      .addClass("length-label")  // 크기 조절을 위한 클래스
+      .css({ "pointer-events": "none" });
     labelLayer.add(label);  // 레이블 레이어에 추가
-    label.front();  // 최상단에 표시
+    labelLayer.front();  // 최상단에 표시
+    console.log(`Creating label: ${text} at (${x}, ${y})`);
     return label;
   };
 
