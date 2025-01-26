@@ -15,7 +15,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     snapDistance: 150,          // 스냅 범위 (단위: mm)
   });
   
-  // 화면 보기 설정을 위한 반응형 객체
+  // 화면 보기 설정을 위한  반응형 객체
   const viewbox = reactive({
     x: -3000,          // 화면 왼쪽 끝 좌표
     y: -3000,          // 화면 위쪽 끝 좌표
