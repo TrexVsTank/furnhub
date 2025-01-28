@@ -86,8 +86,27 @@ onMounted(() => {
     <aside class="sidebar right">
       <router-link to="furniture-editor"><button>가구배치로</button></router-link>
       <p>속성 편집</p>
-      <div><p>선택된 개체가 없습니다.</p></div>
+      <div v-if="store.selection.selectedWall">
+        <div>
+          <label>벽 두께 (mm)</label>
+          <input 
+            type="number" 
+            :value="store.getSelectedWallThickness"
+            @input="store.updateSelectedWallThickness($event.target.value)"
+            min="1"
+            step="10"
+          >
+          <div>
+            <button @click="store.updateSelectedWallThickness('-')">-</button>
+            <button @click="store.updateSelectedWallThickness('+')">+</button>
+          </div>
+        </div>
+      </div>
+      <div v-else>
+        <p>선택된 개체가 없습니다.</p>
+      </div>
     </aside>
+
   </div>
 </template>
 

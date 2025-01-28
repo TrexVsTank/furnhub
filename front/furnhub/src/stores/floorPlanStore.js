@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { SVG } from "@svgdotjs/svg.js";
-import { reactive } from "vue";
+import { reactive, computed } from "vue";
 
 export const useFloorPlanStore = defineStore("floorPlanStore", () => {
   // === 기본 상태 관리 ===
@@ -8,6 +8,11 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
   let wallLayer = null;          // 벽을 그리기 위한 레이어
   let labelLayer = null;         // 텍스트와 점을 표시하기 위한 레이어
   
+  // 선택 상태 관리를 위한 반응형 객체
+  const selection = reactive({
+    selectedWall: null           // 현재 선택된 벽
+  });
+
   // 현재 도구의 상태를 관리하는 반응형 객체
   const toolState = reactive({    
     currentTool: "select",        // 현재 선택된 도구 (기본값: 선택 도구)
@@ -392,6 +397,46 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
 
   // === 유틸리티 함수 === 
   
+  /**
+   * 점과 선분 사이의 최단 거리를 계산
+   * @param {Object} point - 점 좌표 {x, y}
+   * @param {Object} lineStart - 선분 시작점 {x, y}
+   * @param {Object} lineEnd - 선분 끝점 {x, y}
+   * @returns {number} 점과 선분 사이의 최단 거리
+   */
+  const pointToLineDistance = (point, lineStart, lineEnd) => {
+    const A = point.x - lineStart.x;
+    const B = point.y - lineStart.y;
+    const C = lineEnd.x - lineStart.x;
+    const D = lineEnd.y - lineStart.y;
+
+    const dot = A * C + B * D;
+    const lenSq = C * C + D * D;
+    let param = -1;
+
+    if (lenSq !== 0) {
+      param = dot / lenSq;
+    }
+
+    let xx, yy;
+
+    if (param < 0) {
+      xx = lineStart.x;
+      yy = lineStart.y;
+    } else if (param > 1) {
+      xx = lineEnd.x;
+      yy = lineEnd.y;
+    } else {
+      xx = lineStart.x + param * C;
+      yy = lineStart.y + param * D;
+    }
+
+    const dx = point.x - xx;
+    const dy = point.y - yy;
+
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+
   /**
    * 좌표값을 1mm 단위로 반올림
    * @param {number} value - 보정할 값
@@ -829,7 +874,41 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
    * - wall: 벽 그리기 도구
    */
   const tools = {
-    select: {  // 화면 이동 도구
+    select: {  // 선택 도구
+      onClick: event => {
+        const coords = getSVGCoordinates(event);
+        
+        // 이전 선택 해제
+        if (selection.selectedWall) {
+          selection.selectedWall.stroke({ color: "#999" });
+          selection.selectedWall = null;
+        }
+        
+        // 벽 선택 (클릭한 점에서 가장 가까운 벽 찾기)
+        const walls = wallLayer.children();
+        let closestWall = null;
+        let minDistance = Infinity;
+        
+        walls.forEach(wall => {
+          const start = { x: wall.attr('x1'), y: wall.attr('y1') };
+          const end = { x: wall.attr('x2'), y: wall.attr('y2') };
+          
+          // 점과 선분 사이의 최단 거리 계산
+          const distance = pointToLineDistance(coords, start, end);
+          
+          // 선택 허용 범위 내에서 가장 가까운 벽 찾기
+          if (distance < minDistance && distance < toolState.snapDistance) {
+            minDistance = distance;
+            closestWall = wall;
+          }
+        });
+        
+        // 가장 가까운 벽이 있으면 선택
+        if (closestWall) {
+          selection.selectedWall = closestWall;
+          selection.selectedWall.stroke({ color: "#007bff" });  // 선택된 벽 강조
+        }
+      },
       onMouseDown: panControls.start,  // 드래그 시작
       onMouseMove: panControls.move,   // 드래그 중
       onMouseUp: panControls.stop      // 드래그 끝
@@ -858,27 +937,100 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
   /**
    * 키보드 단축키 처리
    * - ESC: 벽 그리기 취소
+   * - 1: 선택 도구
+   * - 2: 벽 그리기 도구
+   * - 3: 사각형 도구
+   * - 4: 자르기 도구
    * - Ctrl+Z: 실행 취소
    * - Ctrl+Y: 다시 실행
    * @param {KeyboardEvent} event - 키보드 이벤트
    */
   const handleKeyDown = (event) => {
-    if (event.key === "Escape") {  // ESC 키
-      wallStart = null;  // 벽 그리기 취소
-      cleanupPreview();  // 미리보기 제거
-      labelLayer.front();
-    } else if (event.ctrlKey && event.key === "z") {  // Ctrl+Z
-      event.preventDefault();
-      undo();  // 실행 취소
-    } else if (event.ctrlKey && event.key === "y") {  // Ctrl+Y
-      event.preventDefault();
-      redo();  // 다시 실행
+    // 입력 필드에서의 키 이벤트는 무시
+    if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') return;
+
+    switch (event.key) {
+      case "Escape":
+        wallStart = null;      // 벽 그리기 상태 초기화
+        cleanupPreview();      // 미리보기 요소 제거
+        labelLayer.front();    // 레이블 레이어를 최상단으로
+        break;
+      
+      // 도구 선택 단축키
+      case "1": toolState.currentTool = "select"; break;    // 선택
+      case "2": toolState.currentTool = "wall"; break;      // 벽 그리기
+      case "3": toolState.currentTool = "rectangle"; break; // 사각형
+      case "4": toolState.currentTool = "cut"; break;       // 자르기
+      
+      default:
+        // Ctrl 키와 조합된 단축키 처리
+        if (event.ctrlKey) {
+          switch (event.key) {
+            case "z":
+              event.preventDefault();
+              undo();  // 실행 취소
+              break;
+            case "y": 
+              event.preventDefault();
+              redo();  // 다시 실행
+              break;
+          }
+        }
+        break;
     }
   };
 
+  // 선택된 벽 두께 상태 관리를 위한 반응형 객체
+  const wallThicknessState = reactive({
+    value: 0  // 현재 선택된 벽의 두께
+  });
+
+  // 선택된 벽의 두께를 가져오는 computed 속성
+  const getSelectedWallThickness = computed(() => {
+    if (!selection.selectedWall) return 0;
+    // 두께를 가져와서 반응형 상태 업데이트
+    wallThicknessState.value = parseInt(selection.selectedWall.data('wallThickness') || selection.selectedWall.attr('stroke-width'));
+    return wallThicknessState.value;
+  });
+
+  /**
+   * 선택된 벽의 두께를 업데이트하는 함수
+   * @param {string|number} newThickness - 새로운 두께 값 or '+'/'-' 문자열
+   */
+  const updateSelectedWallThickness = (newThickness) => {
+    if (!selection.selectedWall) return;
+    
+    let updatedThickness;
+    // 현재 두께 가져오기
+    const currentThickness = wallThicknessState.value;
+    
+    // 버튼으로 증감하는 경우와 직접 입력하는 경우를 구분
+    if (typeof newThickness === 'string' && newThickness.includes('+')) {
+      updatedThickness = currentThickness + 10;
+    } else if (typeof newThickness === 'string' && newThickness.includes('-')) {
+      updatedThickness = currentThickness - 10;
+    } else {
+      updatedThickness = parseInt(newThickness);
+    }
+    
+    // 유효성 검사
+    if (isNaN(updatedThickness) || updatedThickness < 1) return;
+    
+    // 벽 두께와 반응형 상태 모두 업데이트
+    selection.selectedWall.stroke({ width: updatedThickness });
+    selection.selectedWall.data('wallThickness', updatedThickness);
+    wallThicknessState.value = updatedThickness;
+    
+    // 상태 저장
+    saveState();
+  };
+  
   // === 외부로 노출할 함수들 ===
   return {
     toolState,                // 도구 상태
+    selection,  // 현재 선택된 벽
+    getSelectedWallThickness,  // 선택된 벽의 두께 getter
+    updateSelectedWallThickness,  // 선택된 벽의 두께 업데이트 함수
     initializeCanvas,         // 캔버스 초기화
     executeToolEvent,         // 도구 이벤트 실행
     zoomCanvas,              // 확대/축소
