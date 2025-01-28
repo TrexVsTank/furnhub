@@ -7,7 +7,8 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
   let draw = null;                // SVG 그리기를 위한 메인 객체
   let wallLayer = null;          // 벽을 그리기 위한 레이어
   let labelLayer = null;         // 텍스트와 점을 표시하기 위한 레이어
-  
+  let spaceLayer = null;        // 공간 채우기를 위한 레이어
+
   // 선택 상태 관리를 위한 반응형 객체
   const selection = reactive({
     selectedWall: null           // 현재 선택된 벽
@@ -38,6 +39,19 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     undoStack: [],    // 실행 취소를 위한 이전 상태들을 저장하는 배열
     redoStack: [],    // 다시 실행을 위한 상태들을 저장하는 배열
     current: null     // 현재 상태
+  });
+
+  // 선택된 벽 두께 상태 관리를 위한 반응형 객체
+  const wallThicknessState = reactive({
+    value: 0  // 현재 선택된 벽의 두께
+  });
+
+  // 선택된 벽의 두께를 가져오는 computed 속성
+  const getSelectedWallThickness = computed(() => {
+    if (!selection.selectedWall) return 0;
+    // 두께를 가져와서 반응형 상태 업데이트
+    wallThicknessState.value = parseInt(selection.selectedWall.data('wallThickness') || selection.selectedWall.attr('stroke-width'));
+    return wallThicknessState.value;
   });
 
   // === 상태 저장/복원 함수들 ===
@@ -83,7 +97,15 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
         x: key.cx(),
         y: key.cy(),
         size: key.attr('r') * 2
+      })),
+
+      // 공간 채우기 데이터 추가
+      spaces: spaceLayer.children().map(space => ({
+        points: space.array().value,
+        fill: space.attr('fill'),
+        opacity: space.attr('opacity')
       }))
+
     };
     
     // 상태를 저장하고 다시 실행 스택 초기화
@@ -100,6 +122,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     // 기존 요소들 모두 제거
     wallLayer.children().forEach(child => child.remove());
     labelLayer.children().forEach(child => child.remove());
+    spaceLayer.children().forEach(child => child.remove());
 
     // 미리보기 상태 초기화
     cleanupPreview();
@@ -123,6 +146,15 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
 
     // 레이블 레이어를 최상단으로
     labelLayer.front();
+
+    // 공간 채우기 복원
+    state.spaces?.forEach(space => {
+      spaceLayer.polygon(space.points)
+        .fill({ color: space.fill, opacity: space.opacity })
+        .stroke({ width: 0 })
+        .addClass('space-fill');
+    });
+
   };
 
   // === 실행 취소/다시 실행 기능 ===
@@ -169,9 +201,175 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     
     // 레이어 순서대로 추가: 그리드 -> 벽 -> 레이블
     addGrid();
+    spaceLayer = draw.group().addClass("space-layer");
     wallLayer = draw.group().addClass("wall-layer");
     labelLayer = draw.group().addClass("label-layer");
     labelLayer.front();
+  };
+
+  // 닫힌 공간 감지 함수
+  const detectClosedSpaces = () => {
+    const walls = wallLayer.children();
+    const segments = [];
+    const points = new Set();
+    const connections = new Map();
+    
+    // 벽 세그먼트와 연결점 정보 수집
+    walls.forEach(wall => {
+      const x1 = Math.round(parseFloat(wall.attr('x1')));
+      const y1 = Math.round(parseFloat(wall.attr('y1')));
+      const x2 = Math.round(parseFloat(wall.attr('x2')));
+      const y2 = Math.round(parseFloat(wall.attr('y2')));
+      
+      const p1 = `${x1},${y1}`;
+      const p2 = `${x2},${y2}`;
+      
+      points.add(p1);
+      points.add(p2);
+      
+      // 양방향 연결 정보 저장
+      if (!connections.has(p1)) connections.set(p1, new Set());
+      if (!connections.has(p2)) connections.set(p2, new Set());
+      
+      connections.get(p1).add(p2);
+      connections.get(p2).add(p1);
+      
+      segments.push({ x1, y1, x2, y2 });
+    });
+
+    // 모든 가능한 시작점에서 닫힌 경로 찾기
+    const closedPaths = [];
+    const pointsArray = Array.from(points);
+
+    for (let i = 0; i < pointsArray.length; i++) {
+      const start = pointsArray[i];
+      const path = findClosedPath(start, connections, new Set(), [start]);
+      if (path && path.length >= 4) {
+        closedPaths.push(path);
+      }
+    }
+
+    // 기존 채우기 제거
+    spaceLayer.clear();
+
+    // 찾은 각 닫힌 공간을 채우기
+    const uniquePaths = removeDuplicatePaths(closedPaths);
+    uniquePaths.forEach(path => {
+      if (path.length >= 4) {  // 최소 4개의 점이 필요
+        const points = path.map(coords => coords).join(' ');
+        
+        // 다각형 그리기
+        spaceLayer.polygon(points)
+          .fill({ color: '#e6e6e6', opacity: 0.3 })
+          .stroke({ width: 0 })
+          .addClass('space-fill');
+      }
+    });
+  };
+
+  // 주어진 시작점에서 닫힌 경로 찾기
+  const findClosedPath = (current, connections, visited, path) => {
+    const neighbors = connections.get(current);
+    
+    // 현재 경로가 3개 이상의 점을 가지고 있고, 시작점으로 돌아올 수 있는 경우
+    if (path.length >= 3 && neighbors.has(path[0])) {
+      return path;
+    }
+
+    // 이웃한 점들을 순회하며 경로 탐색
+    for (const next of neighbors) {
+      const edge = `${current}-${next}`;
+      if (!visited.has(edge)) {
+        visited.add(edge);
+        visited.add(`${next}-${current}`);
+        
+        const result = findClosedPath(next, connections, visited, [...path, next]);
+        if (result) return result;
+        
+        visited.delete(edge);
+        visited.delete(`${next}-${current}`);
+      }
+    }
+    return null;
+  };
+
+  // 중복된 경로 제거
+  const removeDuplicatePaths = (paths) => {
+    const uniquePaths = new Set();
+    
+    paths.forEach(path => {
+      // 경로를 정규화(시작점을 가장 작은 좌표로)
+      const normalized = normalizePath(path);
+      uniquePaths.add(normalized.join(' '));
+    });
+    
+    return Array.from(uniquePaths).map(pathStr => pathStr.split(' '));
+  };
+
+  // 경로 정규화 (시작점을 가장 작은 좌표로)
+  const normalizePath = (path) => {
+    let minIndex = 0;
+    let minValue = path[0];
+    
+    for (let i = 1; i < path.length; i++) {
+      if (path[i] < minValue) {
+        minValue = path[i];
+        minIndex = i;
+      }
+    }
+    
+    return [
+      ...path.slice(minIndex),
+      ...path.slice(0, minIndex)
+    ];
+  };
+
+  // 순환 찾기 알고리즘
+  const findCycles = (adjacencyList) => {
+    const cycles = [];
+    const visited = new Set();
+    const vertices = Object.keys(adjacencyList);
+
+    const findCycleFromVertex = (start, current, path) => {
+      if (path.length > 2 && current === start) {
+        cycles.push([...path]);
+        return;
+      }
+
+      if (path.length > 2 && path.includes(current)) return;
+
+      adjacencyList[current].forEach(next => {
+        if (!visited.has(`${current}-${next}`)) {
+          visited.add(`${current}-${next}`);
+          visited.add(`${next}-${current}`);
+          path.push(next);
+          findCycleFromVertex(start, next, path);
+          path.pop();
+        }
+      });
+    };
+
+    vertices.forEach(vertex => {
+      findCycleFromVertex(vertex, vertex, [vertex]);
+    });
+
+    // 최소한의 유효한 순환만 반환
+    return cycles.filter(cycle => {
+      return cycle.length >= 4 && 
+             isValidCycle(cycle, adjacencyList);
+    });
+  };
+
+  // 유효한 순환인지 검사
+  const isValidCycle = (cycle, adjacencyList) => {
+    for (let i = 0; i < cycle.length; i++) {
+      const current = cycle[i];
+      const next = cycle[(i + 1) % cycle.length];
+      if (!adjacencyList[current].has(next)) {
+        return false;
+      }
+    }
+    return true;
   };
 
   // === 그리드 생성 ===
@@ -391,6 +589,9 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       lengthLabel = createLabel("0", wallStart.x, wallStart.y);
       
       labelLayer.front();
+
+      detectClosedSpaces(); // 닫힌 공간 감지
+      
       saveState();
     }
   };
@@ -867,6 +1068,37 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     labelLayer.front();  // 레이블 레이어 최상단으로
   };
 
+  // 키포인트와 레이블을 정리하는 함수
+  const cleanupOrphanedElements = () => {
+    const walls = wallLayer.children();
+    const keyPoints = labelLayer.find('.key');
+    
+    // 모든 키포인트 검사
+    keyPoints.forEach(key => {
+      const cx = parseFloat(key.attr('cx'));
+      const cy = parseFloat(key.attr('cy'));
+      let isConnected = false;
+      
+      // 이 키포인트가 어떤 벽의 끝점인지 확인
+      walls.forEach(wall => {
+        const x1 = parseFloat(wall.attr('x1'));
+        const y1 = parseFloat(wall.attr('y1'));
+        const x2 = parseFloat(wall.attr('x2'));
+        const y2 = parseFloat(wall.attr('y2'));
+        
+        if ((Math.abs(x1 - cx) < 1 && Math.abs(y1 - cy) < 1) ||
+            (Math.abs(x2 - cx) < 1 && Math.abs(y2 - cy) < 1)) {
+          isConnected = true;
+        }
+      });
+      
+      // 연결되지 않은 키포인트 제거
+      if (!isConnected) {
+        key.remove();
+      }
+    });
+  };
+
   // === 도구 이벤트 시스템 ===
   /**
    * 각 도구별 마우스 이벤트 처리 함수 정의
@@ -956,6 +1188,44 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
         labelLayer.front();    // 레이블 레이어를 최상단으로
         break;
       
+      // Delete 키 이벤트에서
+      case "Delete":
+        if (selection.selectedWall) {
+          // 선택된 벽의 레이블 제거
+          const wallStart = {
+            x: selection.selectedWall.attr('x1'),
+            y: selection.selectedWall.attr('y1')
+          };
+          const wallEnd = {
+            x: selection.selectedWall.attr('x2'),
+            y: selection.selectedWall.attr('y2')
+          };
+          
+          const labels = labelLayer.find('.length-label');
+          labels.forEach(label => {
+            const labelX = parseFloat(label.attr('x'));
+            const labelY = parseFloat(label.attr('y'));
+            
+            if (isPointNearLine(labelX, labelY, wallStart, wallEnd)) {
+              label.remove();
+            }
+          });
+          
+          // 벽 제거
+          selection.selectedWall.remove();
+          selection.selectedWall = null;
+          
+          // 고아가 된 요소들 정리
+          cleanupOrphanedElements();
+          
+          // 닫힌 공간 다시 감지
+          detectClosedSpaces();
+          
+          // 상태 저장
+          saveState();
+        }
+        break;
+
       // 도구 선택 단축키
       case "1": toolState.currentTool = "select"; break;    // 선택
       case "2": toolState.currentTool = "wall"; break;      // 벽 그리기
@@ -979,19 +1249,6 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
         break;
     }
   };
-
-  // 선택된 벽 두께 상태 관리를 위한 반응형 객체
-  const wallThicknessState = reactive({
-    value: 0  // 현재 선택된 벽의 두께
-  });
-
-  // 선택된 벽의 두께를 가져오는 computed 속성
-  const getSelectedWallThickness = computed(() => {
-    if (!selection.selectedWall) return 0;
-    // 두께를 가져와서 반응형 상태 업데이트
-    wallThicknessState.value = parseInt(selection.selectedWall.data('wallThickness') || selection.selectedWall.attr('stroke-width'));
-    return wallThicknessState.value;
-  });
 
   /**
    * 선택된 벽의 두께를 업데이트하는 함수
@@ -1048,6 +1305,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       }
     },
     undo,                    // 실행 취소
-    redo                     // 다시 실행
+    redo,                     // 다시 실행
+    detectClosedSpaces      // 닫힌 공간 감지 함수
   };
 });
