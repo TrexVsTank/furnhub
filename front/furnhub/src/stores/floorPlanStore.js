@@ -15,7 +15,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     snapDistance: 150,          // 스냅 범위 (단위: mm)
   });
   
-  // 화면 보기 설정을 위한  반응형 객체
+  // 화면 보기 설정을 위한 반응형 객체
   const viewbox = reactive({
     x: -3000,          // 화면 왼쪽 끝 좌표
     y: -3000,          // 화면 위쪽 끝 좌표
@@ -57,7 +57,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
         
         return {
           x1, y1, x2, y2,
-          thickness: toolState.wallThickness
+          thickness: wall.data('wallThickness') || wall.attr('stroke-width') // 저장된 두께 또는 현재 두께 사용
         };
       }).filter(wall => wall !== null), // null 제거
 
@@ -102,7 +102,8 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     // 벽 다시 그리기
     state.walls.forEach(wall => {
       wallLayer.line(wall.x1, wall.y1, wall.x2, wall.y2)
-        .stroke({ width: wall.thickness, color: "#999" });
+        .stroke({ width: wall.thickness, color: "#999" })
+        .data('wallThickness', wall.thickness);
     });
 
     // 레이블 다시 그리기
@@ -351,13 +352,6 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
 
       const distance = calculateDistance(wallStart, finalEnd);
       
-      // // 거리가 0이면 벽 생성하지 않음
-      // if (distance === 0) {
-      //   cleanupPreview();
-      //   wallStart = null;
-      //   return;
-      // }
-      
       // 교차점 찾기
       const intersections = findIntersections(wallStart, finalEnd, walls);
       
@@ -368,7 +362,8 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       } else {
         // 교차점이 없을 때만 새 벽과 레이블 추가
         wallLayer.line(wallStart.x, wallStart.y, finalEnd.x, finalEnd.y)
-          .stroke({ width: toolState.wallThickness, color: "#999" });
+          .stroke({ width: toolState.wallThickness, color: "#999" })
+          .data('wallThickness', toolState.wallThickness);
         const midPoint = {
           x: (wallStart.x + finalEnd.x) / 2,
           y: (wallStart.y + finalEnd.y) / 2
@@ -510,30 +505,24 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     const wallStart = { x: wall.attr('x1'), y: wall.attr('y1') };
     const wallEnd = { x: wall.attr('x2'), y: wall.attr('y2') };
   
-    // // 해당 벽과 관련된 레이블 제거
-    // const labels = labelLayer.find('.length-label');
-    // labels.forEach(label => {
-    //   const labelX = parseFloat(label.attr('x'));
-    //   const labelY = parseFloat(label.attr('y'));
-  
-    //   if (isPointNearLine(labelX, labelY, wallStart, wallEnd)) {
-    //     label.remove();
-    //   }
-    // });
-  
+    // 기존 벽의 두께 가져오기
+    const originalThickness = wall.data('wallThickness') || wall.attr('stroke-width');
+
     wall.remove();
   
     // 새 벽 생성 및 레이블 추가
     if (calculateDistance(wallStart, point) > 0) {
       wallLayer.line(wallStart.x, wallStart.y, point.x, point.y)
-        .stroke({ width: toolState.wallThickness, color: "#999" });
+        .stroke({ width: originalThickness, color: "#999" })
+        .data('wallThickness', originalThickness);
       const distance1 = calculateDistance(wallStart, point);
       createLabel(distance1, (wallStart.x + point.x) / 2, (wallStart.y + point.y) / 2);
     }
   
     if (calculateDistance(point, wallEnd) > 0) {
       wallLayer.line(point.x, point.y, wallEnd.x, wallEnd.y)
-        .stroke({ width: toolState.wallThickness, color: "#999" });
+        .stroke({ width: originalThickness, color: "#999" })
+        .data('wallThickness', originalThickness);;
       const distance2 = calculateDistance(point, wallEnd);
       createLabel(distance2, (point.x + wallEnd.x) / 2, (point.y + wallEnd.y) / 2);
     }
@@ -577,19 +566,18 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
   const createWallWithIntersections = (start, end, intersections) => {
     // 새 벽 경로 상의 기존 레이블 제거
     const existingLabels = labelLayer.find('.length-label');
-    // existingLabels.forEach(label => {
-    //   const labelX = parseFloat(label.attr('x'));
-    //   const labelY = parseFloat(label.attr('y'));
-    //   if (isPointNearLine(labelX, labelY, start, end)) {
-    //     label.remove();
-    //   }
-    // });
   
     let currentStart = start;
-    [...intersections, { point: end }].forEach(({ point }) => {
+    const segments = [...intersections, { point: end }];
+    
+    segments.forEach((current, index) => {
+      const { point, wall } = current;
       if (calculateDistance(currentStart, point) > 1) {
+        // 교차하는 벽의 두께가 아닌 현재 설정된 두께 사용
         wallLayer.line(currentStart.x, currentStart.y, point.x, point.y)
-          .stroke({ width: toolState.wallThickness, color: "#999" });
+          .stroke({ width: toolState.wallThickness, color: "#999" })
+          .data('wallThickness', toolState.wallThickness);
+  
         const distance = calculateDistance(currentStart, point);
         createLabel(distance, (currentStart.x + point.x) / 2, (currentStart.y + point.y) / 2);
       }
@@ -805,7 +793,6 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       .css({ "pointer-events": "none" });
     labelLayer.add(label);  // 레이블 레이어에 추가
     labelLayer.front();  // 최상단에 표시
-    console.log(`Creating label: ${text} at (${x}, ${y})`);
     return label;
   };
 
