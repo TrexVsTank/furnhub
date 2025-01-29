@@ -161,6 +161,8 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
         .addClass('space-fill');
     });
 
+    // 상태 복원 후 닫힌 공간 다시 감지
+    detectClosedSpaces();
   };
 
   // === 실행 취소/다시 실행 기능 ===
@@ -612,6 +614,9 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     start: (coords) => {
       if (!isWithinBoundary(coords)) return;
       
+      // 현재 상태 저장
+      saveState();
+      
       // 시작점 스냅
       const snappedStart = getSnapPoint(coords, wallLayer.children(), true);
       toolState.rectStart = snappedStart;
@@ -730,6 +735,22 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
 
   // === 유틸리티 함수 === 
   
+  // 다각형의 면적을 계산하는 함수
+  const calculatePolygonArea = (points) => {
+    let area = 0;
+    const numPoints = points.length;
+    
+    for (let i = 0; i < numPoints; i++) {
+      const j = (i + 1) % numPoints;
+      const [x1, y1] = points[i].split(',').map(Number);
+      const [x2, y2] = points[j].split(',').map(Number);
+      area += x1 * y2;
+      area -= y1 * x2;
+    }
+    
+    return Math.abs(area) / 2;
+  };
+
   /**
    * 점과 선분 사이의 최단 거리를 계산
    * @param {Object} point - 점 좌표 {x, y}
