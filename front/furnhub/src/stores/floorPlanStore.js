@@ -215,6 +215,30 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     labelLayer.front();
   };
 
+  const createAreaLabel = (coords) => {
+    // 면적 계산 (mm² -> m² 변환)
+    const areaInSquareMeters = (calculatePolygonArea(coords) / 1000000).toFixed(2);
+    
+    // 중심점 계산
+    const centerX = coords.reduce((sum, [x]) => sum + x, 0) / coords.length;
+    const centerY = coords.reduce((sum, [_, y]) => sum + y, 0) / coords.length;
+    
+    // 면적 레이블 생성
+    const areaLabel = draw.text(`${areaInSquareMeters}m²`)
+      .font({ 
+        size: viewbox.width * 0.02, 
+        anchor: 'middle',
+        weight: 'bold'
+      })
+      .fill('#000')
+      .center(centerX, centerY)
+      .addClass('area-label')
+      .css({ 'pointer-events': 'none' });
+      
+    labelLayer.add(areaLabel);
+    return areaLabel;
+  };
+
   // 닫힌 공간 감지 함수
   const detectClosedSpaces = () => {
     const walls = wallLayer.children();
@@ -249,16 +273,17 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     const closedPaths = [];
     const pointsArray = Array.from(points);
 
+    // 각 시작점에서 모든 가능한 닫힌 경로 찾기
     for (let i = 0; i < pointsArray.length; i++) {
       const start = pointsArray[i];
-      const path = findClosedPath(start, connections, new Set(), [start]);
-      if (path && path.length >= 4) {
-        closedPaths.push(path);
-      }
+      const pathsFromStart = [];
+      findClosedPath(start, connections, new Set(), [start], pathsFromStart);
+      closedPaths.push(...pathsFromStart);
     }
 
     // 기존 채우기 제거
     spaceLayer.clear();
+    labelLayer.find('.area-label').forEach(label => label.remove());
 
     // 찾은 각 닫힌 공간을 채우기
     const uniquePaths = removeDuplicatePaths(closedPaths);
@@ -276,29 +301,34 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
   };
 
   // 주어진 시작점에서 닫힌 경로 찾기
-  const findClosedPath = (current, connections, visited, path) => {
+  const findClosedPath = (current, connections, visited, path, allPaths) => {
     const neighbors = connections.get(current);
-    
     // 현재 경로가 3개 이상의 점을 가지고 있고, 시작점으로 돌아올 수 있는 경우
     if (path.length >= 3 && neighbors.has(path[0])) {
-      return path;
+      // 유효한 닫힌 경로를 찾으면 결과 배열에 추가
+      allPaths.push([...path]);
+      // 계속해서 다른 경로도 찾기 위해 null 대신 false 반환
+      return false;
     }
 
     // 이웃한 점들을 순회하며 경로 탐색
     for (const next of neighbors) {
       const edge = `${current}-${next}`;
       if (!visited.has(edge)) {
+        // 이미 방문한 점인지 확인 (시작점 제외)
+        if (path.length > 0 && path.includes(next) && next !== path[0]) {
+          continue;
+        }
         visited.add(edge);
         visited.add(`${next}-${current}`);
         
-        const result = findClosedPath(next, connections, visited, [...path, next]);
-        if (result) return result;
+        findClosedPath(next, connections, visited, [...path, next], allPaths);
         
         visited.delete(edge);
         visited.delete(`${next}-${current}`);
       }
     }
-    return null;
+    return false;
   };
 
   // 중복된 경로 제거
@@ -306,9 +336,21 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     const uniquePaths = new Set();
     
     paths.forEach(path => {
-      // 경로를 정규화(시작점을 가장 작은 좌표로)
-      const normalized = normalizePath(path);
-      uniquePaths.add(normalized.join(' '));
+      if (path.length >= 4) {  // 최소 4개의 점이 필요
+        // 경로를 정규화(시작점을 가장 작은 좌표로)
+        const normalized = normalizePath(path);
+        
+        // 면적이 0보다 큰 경로만 추가
+        const coords = normalized.map(point => {
+          const [x, y] = point.split(',').map(Number);
+          return [x, y];
+        });
+        
+        const area = Math.abs(calculatePolygonArea(coords));
+        if (area > 100) {  // 최소 면적 기준 (예: 100mm²)
+          uniquePaths.add(normalized.join(' '));
+        }
+      }
     });
     
     return Array.from(uniquePaths).map(pathStr => pathStr.split(' '));
@@ -621,19 +663,18 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       const snappedStart = getSnapPoint(coords, wallLayer.children(), true);
       toolState.rectStart = snappedStart;
       
+      // 시작점 키포인트 생성 후 저장 (추후 제거용)
+      toolState.rectStartKeyPoint = drawKeyPoint(snappedStart.x, snappedStart.y);
+
       // 미리보기 요소 생성
       toolState.rectPreview = draw.group().addClass('rect-preview');
-      toolState.rectPreview.line(0, 0, 0, 0).stroke({ width: toolState.wallThickness, color: "#999", dasharray: "5,5" }); // 위쪽 선
-      toolState.rectPreview.line(0, 0, 0, 0).stroke({ width: toolState.wallThickness, color: "#999", dasharray: "5,5" }); // 오른쪽 선
-      toolState.rectPreview.line(0, 0, 0, 0).stroke({ width: toolState.wallThickness, color: "#999", dasharray: "5,5" }); // 아래쪽 선
-      toolState.rectPreview.line(0, 0, 0, 0).stroke({ width: toolState.wallThickness, color: "#999", dasharray: "5,5" }); // 왼쪽 선
-      
-      // 길이 레이블 초기화
+      toolState.rectPreview.line(0, 0, 0, 0).stroke({ width: toolState.wallThickness, color: "#999", dasharray: "5,5" });
+      toolState.rectPreview.line(0, 0, 0, 0).stroke({ width: toolState.wallThickness, color: "#999", dasharray: "5,5" });
+      toolState.rectPreview.line(0, 0, 0, 0).stroke({ width: toolState.wallThickness, color: "#999", dasharray: "5,5" });
+      toolState.rectPreview.line(0, 0, 0, 0).stroke({ width: toolState.wallThickness, color: "#999", dasharray: "5,5" });
+
       toolState.rectLabels.width = createLabel("0", snappedStart.x, snappedStart.y - 100);
       toolState.rectLabels.height = createLabel("0", snappedStart.x + 100, snappedStart.y);
-      
-      // 시작점 표시
-      drawKeyPoint(snappedStart.x, snappedStart.y);
     },
   
     preview: (coords) => {
@@ -725,10 +766,16 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       toolState.rectPreview?.remove();
       toolState.rectLabels.width?.remove();
       toolState.rectLabels.height?.remove();
+    
+      // 시작 키포인트 삭제 (ESC 키 눌렀을 때 포함)
+      toolState.rectStartKeyPoint?.remove();
+      toolState.rectStartKeyPoint = null;
+    
       toolState.rectPreview = null;
       toolState.rectLabels.width = null;
       toolState.rectLabels.height = null;
       toolState.rectStart = null;
+    
       labelLayer.front();
     }
   };
@@ -742,8 +789,8 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     
     for (let i = 0; i < numPoints; i++) {
       const j = (i + 1) % numPoints;
-      const [x1, y1] = points[i].split(',').map(Number);
-      const [x2, y2] = points[j].split(',').map(Number);
+      const [x1, y1] = points[i];
+      const [x2, y2] = points[j];
       area += x1 * y2;
       area -= y1 * x2;
     }
