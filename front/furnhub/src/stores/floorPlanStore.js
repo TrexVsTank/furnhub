@@ -19,6 +19,12 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     currentTool: "select",        // 현재 선택된 도구 (기본값: 선택 도구)
     wallThickness: 100,          // 벽 두께 (단위: mm)
     snapDistance: 150,          // 스냅 범위 (단위: mm)
+    rectStart: null,            // 사각형 시작점
+    rectPreview: null,          // 사각형 미리보기
+    rectLabels: {               // 사각형 레이블
+      width: null,              // 가로 길이 레이블
+      height: null              // 세로 길이 레이블
+    }
   });
   
   // 화면 보기 설정을 위한 반응형 객체
@@ -596,6 +602,132 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     }
   };
 
+  // 사각형 그리기 관련 변수들
+  let rectPreview = null;         // 사각형 미리보기
+  let widthLabel = null;          // 가로 길이 레이블
+  let heightLabel = null;         // 세로 길이 레이블
+
+  // 사각형 그리기 관련 함수들
+  const rectControls = {
+    start: (coords) => {
+      if (!isWithinBoundary(coords)) return;
+      
+      // 시작점 스냅
+      const snappedStart = getSnapPoint(coords, wallLayer.children(), true);
+      toolState.rectStart = snappedStart;
+      
+      // 미리보기 요소 생성
+      toolState.rectPreview = draw.group().addClass('rect-preview');
+      toolState.rectPreview.line(0, 0, 0, 0).stroke({ width: toolState.wallThickness, color: "#999", dasharray: "5,5" }); // 위쪽 선
+      toolState.rectPreview.line(0, 0, 0, 0).stroke({ width: toolState.wallThickness, color: "#999", dasharray: "5,5" }); // 오른쪽 선
+      toolState.rectPreview.line(0, 0, 0, 0).stroke({ width: toolState.wallThickness, color: "#999", dasharray: "5,5" }); // 아래쪽 선
+      toolState.rectPreview.line(0, 0, 0, 0).stroke({ width: toolState.wallThickness, color: "#999", dasharray: "5,5" }); // 왼쪽 선
+      
+      // 길이 레이블 초기화
+      toolState.rectLabels.width = createLabel("0", snappedStart.x, snappedStart.y - 100);
+      toolState.rectLabels.height = createLabel("0", snappedStart.x + 100, snappedStart.y);
+      
+      // 시작점 표시
+      drawKeyPoint(snappedStart.x, snappedStart.y);
+    },
+  
+    preview: (coords) => {
+      if (!toolState.rectStart || !coords) return;
+      
+      // 현재 마우스 위치를 스냅
+      const snappedEnd = getSnapPoint(coords, wallLayer.children(), true);
+      
+      // 사각형의 네 모서리 좌표 계산
+      const x1 = toolState.rectStart.x;
+      const y1 = toolState.rectStart.y;
+      const x2 = snappedEnd.x;
+      const y2 = snappedEnd.y;
+      
+      // 미리보기 선 업데이트
+      const lines = toolState.rectPreview.children();
+      lines[0].plot(x1, y1, x2, y1);  // 위쪽 선
+      lines[1].plot(x2, y1, x2, y2);  // 오른쪽 선
+      lines[2].plot(x2, y2, x1, y2);  // 아래쪽 선
+      lines[3].plot(x1, y2, x1, y1);  // 왼쪽 선
+      
+      // 길이 레이블 업데이트
+      const width = Math.abs(x2 - x1);
+      const height = Math.abs(y2 - y1);
+      toolState.rectLabels.width.text(`${width}mm`).center((x1 + x2) / 2, Math.min(y1, y2) - 100);
+      toolState.rectLabels.height.text(`${height}mm`).center(Math.max(x1, x2) + 100, (y1 + y2) / 2);
+    },
+  
+    finish: (coords) => {
+      if (!toolState.rectStart || !coords) return;
+      
+      // 현재 마우스 위치를 스냅
+      const snappedEnd = getSnapPoint(coords, wallLayer.children(), true);
+      
+      // 사각형의 네 모서리 좌표 계산
+      const x1 = toolState.rectStart.x;
+      const y1 = toolState.rectStart.y;
+      const x2 = snappedEnd.x;
+      const y2 = snappedEnd.y;
+  
+      // 사각형의 네 변을 순서대로 그리기
+      const lines = [
+        { start: { x: x1, y: y1 }, end: { x: x2, y: y1 } }, // 위쪽
+        { start: { x: x2, y: y1 }, end: { x: x2, y: y2 } }, // 오른쪽
+        { start: { x: x2, y: y2 }, end: { x: x1, y: y2 } }, // 아래쪽
+        { start: { x: x1, y: y2 }, end: { x: x1, y: y1 } }  // 왼쪽
+      ];
+  
+      // 각 변마다 교차점 처리 및 벽 생성
+      lines.forEach(line => {
+        const walls = wallLayer.children();
+        const intersections = findIntersections(line.start, line.end, walls);
+        
+        if (intersections.length > 0) {
+          // 교차점이 있으면 기존 벽을 분할하고 새 벽 생성
+          intersections.forEach(intersection => splitWallAtIntersection(intersection));
+          createWallWithIntersections(line.start, line.end, intersections);
+        } else {
+          // 교차점이 없으면 새 벽만 생성
+          const wall = wallLayer.line(line.start.x, line.start.y, line.end.x, line.end.y)
+            .stroke({ width: toolState.wallThickness, color: "#999" })
+            .data('wallThickness', toolState.wallThickness);
+            
+          // 길이 레이블 추가
+          const distance = calculateDistance(line.start, line.end);
+          if (Math.abs(line.end.y - line.start.y) < 1) { // 가로 벽
+            createLabel(distance, (line.start.x + line.end.x) / 2, line.start.y - 100);
+          } else { // 세로 벽
+            createLabel(distance, line.start.x + 100, (line.start.y + line.end.y) / 2);
+          }
+        }
+        
+        // 끝점마다 키포인트 추가
+        drawKeyPoint(line.start.x, line.start.y);
+      });
+  
+      // 마지막 모서리 포인트 추가
+      drawKeyPoint(x1, y1);
+  
+      // 미리보기 요소들 제거
+      rectControls.cleanup();
+  
+      // 닫힌 공간 감지 및 상태 저장
+      detectClosedSpaces();
+      saveState();
+    },
+  
+    cleanup: () => {
+      toolState.rectPreview?.remove();
+      toolState.rectLabels.width?.remove();
+      toolState.rectLabels.height?.remove();
+      toolState.rectPreview = null;
+      toolState.rectLabels.width = null;
+      toolState.rectLabels.height = null;
+      toolState.rectStart = null;
+      labelLayer.front();
+    }
+  };
+
   // === 유틸리티 함수 === 
   
   /**
@@ -1106,7 +1238,8 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
    * - wall: 벽 그리기 도구
    */
   const tools = {
-    select: {  // 선택 도구
+    // 선택 도구
+    select: {
       onClick: event => {
         const coords = getSVGCoordinates(event);
         
@@ -1145,12 +1278,25 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       onMouseMove: panControls.move,   // 드래그 중
       onMouseUp: panControls.stop      // 드래그 끝
     },
-    wall: {    // 벽 그리기 도구
+    // 벽 그리기 도구
+    wall: {
       onClick: event => {  // 클릭 시
         const coords = getSVGCoordinates(event);
         !wallStart ? wallControls.start(coords) : wallControls.finish(coords);
       },
       onMouseMove: event => wallControls.preview(getSVGCoordinates(event))  // 미리보기
+    },
+    // 사각형 그리기 도구
+    rect: {
+      onClick: event => {
+        const coords = getSVGCoordinates(event);
+        !toolState.rectStart ? rectControls.start(coords) : rectControls.finish(coords);
+      },
+      onMouseMove: event => {
+        if (toolState.rectStart) {
+          rectControls.preview(getSVGCoordinates(event));
+        }
+      }
     }
   };
 
@@ -1183,8 +1329,12 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
 
     switch (event.key) {
       case "Escape":
-        wallStart = null;      // 벽 그리기 상태 초기화
-        cleanupPreview();      // 미리보기 요소 제거
+        if (toolState.currentTool === 'rect') {
+          rectControls.cleanup();
+        } else {
+          wallStart = null;      // 벽 그리기 상태 초기화
+          cleanupPreview();      // 미리보기 요소 제거
+        }
         labelLayer.front();    // 레이블 레이어를 최상단으로
         break;
       
@@ -1229,7 +1379,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       // 도구 선택 단축키
       case "1": toolState.currentTool = "select"; break;    // 선택
       case "2": toolState.currentTool = "wall"; break;      // 벽 그리기
-      case "3": toolState.currentTool = "rectangle"; break; // 사각형
+      case "3": toolState.currentTool = "rect"; break; // 사각형
       case "4": toolState.currentTool = "cut"; break;       // 자르기
       
       default:
