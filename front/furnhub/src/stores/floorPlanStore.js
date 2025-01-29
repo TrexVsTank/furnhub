@@ -3,82 +3,77 @@ import { SVG } from "@svgdotjs/svg.js";
 import { reactive, computed } from "vue";
 
 export const useFloorPlanStore = defineStore("floorPlanStore", () => {
-  // === 기본 상태 관리 ===
-  let draw = null;                // SVG 그리기를 위한 메인 객체
-  let wallLayer = null;          // 벽을 그리기 위한 레이어
-  let labelLayer = null;         // 텍스트와 점을 표시하기 위한 레이어
-  let spaceLayer = null;        // 공간 채우기를 위한 레이어
 
-  // 선택 상태 관리를 위한 반응형 객체
-  const selection = reactive({
-    selectedWall: null           // 현재 선택된 벽
-  });
+  let draw = null; // SVG 그리기를 위한 메인 객체
 
-  // 현재 도구의 상태를 관리하는 반응형 객체
+  // 레이어
+  let wallLayer = null;
+  let labelLayer = null;
+  let spaceLayer = null;
+
+  // 객체
+  let wallStart = null; // 벽 시작
+  let wallPreview = null; // 벽 미리보기
+  let lengthLabel = null; // 벽 길이
+
+  // 객체 반응형
   const toolState = reactive({    
-    currentTool: "select",        // 현재 선택된 도구 (기본값: 선택 도구)
-    wallThickness: 100,          // 벽 두께 (단위: mm)
-    snapDistance: 150,          // 스냅 범위 (단위: mm)
-    rectStart: null,            // 사각형 시작점
-    rectPreview: null,          // 사각형 미리보기
-    rectLabels: {               // 사각형 레이블
-      width: null,              // 가로 길이 레이블
-      height: null              // 세로 길이 레이블
+    currentTool: "select", // 선택된 도구 (기본값: 선택)
+    wallThickness: 100, // 벽 두께 (단위: mm)
+    snapDistance: 150, // 스냅 범위 (단위: mm)
+    rectStart: null, // 사각형 시작
+    rectPreview: null, // 사각형 미리보기
+    rectLabels: { // 사각형 레이블
+      width: null, // 가로 길이 레이블
+      height: null // 세로 길이 레이블
     }
   });
+
+  // 선택
+  const selection = reactive({
+    selectedWall: null
+  });
   
-  // 화면 보기 설정을 위한 반응형 객체
+  // 화면
   const viewbox = reactive({
-    x: -3000,          // 화면 왼쪽 끝 좌표
-    y: -3000,          // 화면 위쪽 끝 좌표
-    width: 6000,       // 화면 너비
-    height: 6000       // 화면 높이
+    x: -3000, // 왼쪽 끝
+    y: -3000, // 위쪽 끝
+    width: 6000, // 너비
+    height: 6000 // 높이
   });
 
-  // 벽 그리기 관련 변수들
-  let wallStart = null;           // 벽 시작점의 좌표
-  let wallPreview = null;         // 벽 그리기 중 미리보기 선
-  let lengthLabel = null;         // 길이를 표시하는 텍스트
-
-  // === 작업 기록(히스토리) 관리 ===
-  const history = reactive({
-    undoStack: [],    // 실행 취소를 위한 이전 상태들을 저장하는 배열
-    redoStack: [],    // 다시 실행을 위한 상태들을 저장하는 배열
-    current: null     // 현재 상태
-  });
-
-  // 선택된 벽 두께 상태 관리를 위한 반응형 객체
+  // 선택된 벽 두께 반응형
   const wallThicknessState = reactive({
-    value: 0  // 현재 선택된 벽의 두께
+    value: 0
   });
-
-  // 선택된 벽의 두께를 가져오는 computed 속성
+  // 선택된 벽의 두께 getter computed
   const getSelectedWallThickness = computed(() => {
     if (!selection.selectedWall) return 0;
-    // 두께를 가져와서 반응형 상태 업데이트
     wallThicknessState.value = parseInt(selection.selectedWall.data('wallThickness') || selection.selectedWall.attr('stroke-width'));
     return wallThicknessState.value;
   });
 
-  // === 상태 저장/복원 함수들 ===
-  /**
-   * 현재 캔버스의 상태를 저장하는 함수
-   * - 모든 벽, 레이블, 키포인트의 정보를 저장
-   */
+  // 히스토리
+  const history = reactive({
+    undoStack: [],
+    redoStack: [],
+    current: null
+  });
+
+  // 상태 저장
   const saveState = () => {
     const state = {
-      // 모든 벽의 정보 저장 (시작점, 끝점, 두께)
+      
       walls: wallLayer.children().map(wall => {
-        const x1 = parseFloat(wall.attr('x1'));
-        const y1 = parseFloat(wall.attr('y1'));
-        const x2 = parseFloat(wall.attr('x2'));
-        const y2 = parseFloat(wall.attr('y2'));
+        const x1 = parseFloat(wall.attr('x1')); // 시작 x
+        const y1 = parseFloat(wall.attr('y1')); // 시작 y
+        const x2 = parseFloat(wall.attr('x2')); // 종료 x
+        const y2 = parseFloat(wall.attr('y2')); // 종료 y
 
-        
-        // 시작점과 끝점이 같은 벽은 저장하지 않음
-        if (x1 === x2 && y1 === y2) {
-          return null;
-        }
+        // // 시작점과 끝점이 같은 벽은 저장하지 않음
+        // if (x1 === x2 && y1 === y2) {
+        //   return null;
+        // }
         
         return {
           x1, y1, x2, y2,
