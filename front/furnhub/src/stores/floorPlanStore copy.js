@@ -480,7 +480,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       toolState.rectLabels.width.text(`${width}mm`).center((x1 + x2) / 2, Math.min(y1, y2) - 100);
       toolState.rectLabels.height.text(`${height}mm`).center(Math.max(x1, x2) + 100, (y1 + y2) / 2);
     },
-    // 3. 끝끝
+    // 3. 끝
     finish: (coords) => {
       if (!toolState.rectStart || !coords) return;
       // 현재 마우스 위치를 스냅
