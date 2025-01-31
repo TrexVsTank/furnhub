@@ -1,197 +1,136 @@
+// store/floorPlanStore.js
 import { defineStore } from "pinia";
 import { SVG } from "@svgdotjs/svg.js";
 import { reactive, computed } from "vue";
 
 export const useFloorPlanStore = defineStore("floorPlanStore", () => {
+  /** === SVG 관련 객체 === */
+  let draw = null, wallLayer = null, labelLayer = null, spaceLayer = null; // 각 레이어 저장
 
-  let draw = null; // SVG 그리기를 위한 메인 객체
-
-  // 레이어
-  let wallLayer = null;
-  let labelLayer = null;
-  let spaceLayer = null;
-
-  // 객체
-  let wallStart = null; // 벽 시작
-  let wallPreview = null; // 벽 미리보기
-  let lengthLabel = null; // 벽 길이`
-
-  // 객체 반응형
-  const toolState = reactive({    
-    currentTool: "select", // 선택된 도구 (기본값: 선택)
-    wallThickness: 100, // 벽 두께 (단위: mm)
-    snapDistance: 150, // 스냅 범위 (단위: mm)
-    rectStart: null, // 사각형 시작
-    rectPreview: null, // 사각형 미리보기
-    rectLabels: { // 사각형 레이블
-      width: null, // 가로 길이 레이블
-      height: null // 세로 길이 레이블
-    }
+  /** === 도구 상태 (반응형) === */
+  const toolState = reactive({
+    currentTool: "select", // 현재 선택된 도구 (기본값: 선택 도구)
+    wallThickness: 100,     // 기본 벽 두께 (단위: mm)
+    snapDistance: 100,      // 점 스냅 거리 (단위: mm, 근접 시 자동 정렬)
+    rectStart: null,        // 사각형 시작점 (초기값 없음)
+    rectPreview: null,      // 사각형 미리보기 객체
+    rectLabels: { width: null, height: null } // 사각형의 가로/세로 길이 레이블
   });
 
-  // 선택
-  const selection = reactive({
-    selectedWall: null
-  });
-  
-  // 화면
-  const viewbox = reactive({
-    x: -3000, // 왼쪽 끝
-    y: -3000, // 위쪽 끝
-    width: 6000, // 너비
-    height: 6000 // 높이
-  });
+  /** === 선택 상태 (반응형) === */
+  const selection = reactive({ selectedWall: null }); // 현재 선택된 벽을 저장
 
-  // 선택된 벽 두께 반응형
-  const wallThicknessState = reactive({
-    value: 0
-  });
-  // 선택된 벽의 두께 getter computed
+  /** === 화면 이동 및 확대/축소 상태 (반응형) === */
+  const viewbox = reactive({ x: -3000, y: -3000, width: 6000, height: 6000 });
+
+  /** === 벽 두께 상태 (반응형) === */
+  const wallThicknessState = reactive({ value: 0 });
+
+  /** === 선택된 벽의 두께 반환 (선택된 벽 없으면 0 반환) === */
   const getSelectedWallThickness = computed(() => {
-    if (!selection.selectedWall) return 0;
-    wallThicknessState.value = parseInt(selection.selectedWall.data('wallThickness') || selection.selectedWall.attr('stroke-width'));
-    return wallThicknessState.value;
+    if (!selection.selectedWall) return 0; // 선택된 벽이 없으면 0 반환
+    return parseInt(selection.selectedWall.data("wallThickness")) || 0; // 데이터가 없으면 기본값 0
   });
 
-  // 히스토리
-  const history = reactive({
-    undoStack: [],
-    redoStack: [],
-    current: null
-  });
+  /** === 실행 취소 및 다시 실행을 위한 스택 (반응형) === */
+  const history = reactive({ undoStack: [], redoStack: [], current: null });
 
-  // 상태 저장
+  /**
+   * 현재 상태를 저장 (Undo/Redo 지원)
+   * - 벽, 레이블, 키포인트, 공간 데이터를 JSON 문자열로 저장
+   */
   const saveState = () => {
     const state = {
-      
-      walls: wallLayer.children().map(wall => {
-        const x1 = parseFloat(wall.attr('x1')); // 시작 x
-        const y1 = parseFloat(wall.attr('y1')); // 시작 y
-        const x2 = parseFloat(wall.attr('x2')); // 종료 x
-        const y2 = parseFloat(wall.attr('y2')); // 종료 y
-
-        // // 시작점과 끝점이 같은 벽은 저장하지 않음
-        // if (x1 === x2 && y1 === y2) {
-        //   return null;
-        // }
-        return {
-          x1, y1, x2, y2,
-          thickness: wall.data('wallThickness') || wall.attr('stroke-width') // 저장된 두께 또는 현재 두께 사용
-        };
-      }).filter(wall => wall !== null), // null 제거
-
-      // 모든 레이블(텍스트)의 정보 저장
-      labels: labelLayer.find('.length-label').map(label => {
-        const text = label.text().replace('mm', '');
-        // 빈 텍스트나 0인 레이블은 저장하지 않음
-        if (!text || text === '0') return null;
-        return {
-          text: text,
-          x: label.attr('x'),
-          y: label.attr('y')
-        };
-      }).filter(label => label !== null),
-
-      // 모든 키포인트(점)의 정보 저장
-      keyPoints: labelLayer.find('.key').map(key => ({
-        x: key.cx(),
-        y: key.cy(),
-        size: key.attr('r') * 2
+      walls: wallLayer.children().map(wall => ({
+        x1: parseFloat(wall.attr("x1")), y1: parseFloat(wall.attr("y1")),
+        x2: parseFloat(wall.attr("x2")), y2: parseFloat(wall.attr("y2")),
+        thickness: wall.data("wallThickness")
       })),
-
-      // 공간 채우기 데이터 추가
+      labels: labelLayer.find(".length-label").map(label => {
+        const text = label.text().replace("mm", ""); // "mm" 제거
+        if (!text || text === "0") return null; // 0 또는 빈 값 제외
+        return { text, x: label.attr("x"), y: label.attr("y") };
+      }).filter(label => label !== null),
+      keyPoints: labelLayer.find(".key").map(key => ({
+        x: key.cx(), y: key.cy(), size: key.attr("r") * 2
+      })),
       spaces: spaceLayer.children().map(space => ({
-        points: space.toArray ? space.toArray() : [],
-        fill: space.attr('fill'),
-        opacity: space.attr('opacity')
+        points: space.toArray ? space.toArray() : [], // 다각형 좌표 배열
+        fill: space.attr("fill"), opacity: space.attr("opacity")
       }))
-
     };
-    
-    // 상태를 저장하고 다시 실행 스택 초기화
-    history.undoStack.push(JSON.stringify(state));
-    history.redoStack = [];  
+    history.undoStack.push(JSON.stringify(state)); // Undo 스택에 현재 상태 저장
+    history.redoStack = []; // 새 상태가 저장되면 Redo 스택 초기화
     history.current = state;
   };
 
   /**
-   * 저장된 상태로 캔버스를 복원하는 함수
+   * 저장된 상태를 복원하는 함수
    * @param {Object} state - 복원할 상태 정보
    */
   const restoreState = (state) => {
-    // 기존 요소들 모두 제거
-    wallLayer.children().forEach(child => child.remove());
-    labelLayer.children().forEach(child => child.remove());
-    spaceLayer.children().forEach(child => child.remove());
-
-    // 미리보기 상태 초기화
-    cleanupPreview();
+    wallLayer.children().forEach(child => child.remove()); // 기존 벽 삭제
+    labelLayer.children().forEach(child => child.remove()); // 기존 레이블 삭제
+    spaceLayer.children().forEach(child => child.remove()); // 기존 공간 삭제
+    cleanupPreview(); // 미리보기 상태 초기화
 
     // 벽 다시 그리기
     state.walls.forEach(wall => {
       wallLayer.line(wall.x1, wall.y1, wall.x2, wall.y2)
         .stroke({ width: wall.thickness, color: "#999" })
-        .data('wallThickness', wall.thickness);
+        .data("wallThickness", wall.thickness);
     });
 
     // 레이블 다시 그리기
-    state.labels.forEach(label => {
-      createLabel(label.text.replace('m', ''), label.x, label.y);
-    });
+    state.labels.forEach(label => createLabel(label.text, label.x, label.y));
 
     // 키포인트 다시 그리기
-    state.keyPoints.forEach(point => {
-      drawKeyPoint(point.x, point.y);
-    });
-
-    // 레이블 레이어를 최상단으로
-    labelLayer.front();
+    state.keyPoints.forEach(point => drawKeyPoint(point.x, point.y));
 
     // 공간 채우기 복원
     state.spaces?.forEach(space => {
       spaceLayer.polygon(space.points)
         .fill({ color: space.fill, opacity: space.opacity })
         .stroke({ width: 0 })
-        .addClass('space-fill');
+        .addClass("space-fill");
     });
 
-    // 상태 복원 후 닫힌 공간 다시 감지
-    detectClosedSpaces();
+    detectClosedSpaces(); // 닫힌 공간 감지
+    fillEmptyCorners();
   };
 
-  // === 실행 취소/다시 실행 기능 ===
   /**
-   * 실행 취소 함수
-   * - 이전 상태로 되돌림
+   * 실행 취소 함수 (Undo)
    */
   const undo = () => {
     if (history.undoStack.length > 0) {
-      // 현재 상태를 다시 실행 스택으로 이동
-      const currentState = history.undoStack.pop();
-      history.redoStack.push(currentState);
+      const currentState = history.undoStack.pop(); // 현재 상태를 스택에서 제거
+      history.redoStack.push(currentState); // 다시 실행 스택에 추가
       
-      // 이전 상태로 복원
       const previousState = history.undoStack[history.undoStack.length - 1];
       if (previousState) {
         restoreState(JSON.parse(previousState));
-        fillEmptyCorners();
       }
     }
   };
 
   /**
-   * 다시 실행 함수
-   * - 실행 취소했던 작업을 다시 실행
+   * 다시 실행 함수 (Redo)
    */
   const redo = () => {
     if (history.redoStack.length > 0) {
-      // 다음 상태를 가져와서 복원
-      const nextState = history.redoStack.pop();
+      const nextState = history.redoStack.pop(); // 다시 실행할 상태 가져오기
       history.undoStack.push(nextState);
       restoreState(JSON.parse(nextState));
-      fillEmptyCorners();
     }
   };
+
+  
+
+  // 객체
+  let wallStart = null; // 벽 시작
+  let wallPreview = null; // 벽 미리보기
+  let lengthLabel = null; // 벽 길이`
 
   // === 캔버스 초기화 ===
   /**

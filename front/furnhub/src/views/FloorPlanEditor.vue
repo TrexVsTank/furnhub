@@ -60,7 +60,7 @@ onMounted(() => {
           @input="store.setSnapDistance($event.target.value)"
           min="1"
           step="10"
-          placeholder="150"
+          placeholder="100"
         >
         <div>
           <button @click="store.setSnapDistance(store.toolState.snapDistance - 10)">-</button>
