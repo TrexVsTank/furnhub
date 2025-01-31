@@ -86,7 +86,9 @@ onMounted(() => {
     <aside class="sidebar right">
       <router-link to="furniture-editor"><button>가구배치로</button></router-link>
       <p>속성 편집</p>
+      <!-- 오른쪽 속성 사이드바의 벽 선택시 속성 부분 -->
       <div v-if="store.selection.selectedWall">
+        <!-- 기존 벽 두께 조절 UI -->
         <div>
           <label>벽 두께 (mm)</label>
           <input 
@@ -99,6 +101,21 @@ onMounted(() => {
           <div>
             <button @click="store.updateSelectedWallThickness('-')">-</button>
             <button @click="store.updateSelectedWallThickness('+')">+</button>
+          </div>
+        </div>
+        <!-- 벽 길이 조절 UI -->
+        <div>
+          <label>벽 길이 (mm)</label>
+          <input 
+            type="number" 
+            :value="store.wallState.length"
+            @input="store.updateSelectedWallLength($event.target.value)"
+            min="1"
+            step="100"
+          >
+          <div>
+            <button @click="store.updateSelectedWallLength('-')">-</button>
+            <button @click="store.updateSelectedWallLength('+')">+</button>
           </div>
         </div>
       </div>
