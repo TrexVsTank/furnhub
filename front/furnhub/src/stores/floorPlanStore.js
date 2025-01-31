@@ -101,7 +101,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
 
       // 공간 채우기 데이터 추가
       spaces: spaceLayer.children().map(space => ({
-        points: space.array().value,
+        points: space.toArray ? space.toArray() : [],
         fill: space.attr('fill'),
         opacity: space.attr('opacity')
       }))
@@ -174,6 +174,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       const previousState = history.undoStack[history.undoStack.length - 1];
       if (previousState) {
         restoreState(JSON.parse(previousState));
+        fillEmptyCorners();
       }
     }
   };
@@ -188,6 +189,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       const nextState = history.redoStack.pop();
       history.undoStack.push(nextState);
       restoreState(JSON.parse(nextState));
+      fillEmptyCorners();
     }
   };
 
@@ -292,6 +294,8 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
           .addClass('space-fill');
       }
     });
+
+    fillEmptyCorners();
   };
 
   // 주어진 시작점에서 닫힌 경로 찾기
@@ -635,8 +639,10 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       labelLayer.front();
 
       detectClosedSpaces(); // 닫힌 공간 감지
+      fillEmptyCorners();
       
       saveState();
+
     }
   };
 
@@ -753,6 +759,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
   
       // 닫힌 공간 감지 및 상태 저장
       detectClosedSpaces();
+      fillEmptyCorners();
       saveState();
     },
   
@@ -776,6 +783,56 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
 
   // === 유틸리티 함수 === 
   
+  /**
+   * 빈 모서리를 자동으로 채우는 함수
+   */
+  const fillEmptyCorners = () => {
+    const walls = wallLayer.children();
+    const corners = new Map();
+  
+    // 모든 벽의 끝점을 찾아서 저장
+    walls.forEach(wall => {
+      const x1 = parseFloat(wall.attr("x1"));
+      const y1 = parseFloat(wall.attr("y1"));
+      const x2 = parseFloat(wall.attr("x2"));
+      const y2 = parseFloat(wall.attr("y2"));
+      const thickness = parseFloat(wall.data("wallThickness") || wall.attr("stroke-width"));
+  
+      const key1 = `${x1},${y1}`;
+      const key2 = `${x2},${y2}`;
+  
+      if (!corners.has(key1)) corners.set(key1, []);
+      if (!corners.has(key2)) corners.set(key2, []);
+  
+      corners.get(key1).push({ x: x1, y: y1, thickness, wall });
+      corners.get(key2).push({ x: x2, y: y2, thickness, wall });
+    });
+  
+    // 각 코너에서 2개 이상의 벽이 만나는 곳을 찾아 빈 모서리 채우기
+    corners.forEach((wallsAtCorner, key) => {
+      if (wallsAtCorner.length === 2) {
+        const [wallA, wallB] = wallsAtCorner;
+        const commonPoint = { x: wallA.x, y: wallA.y };
+  
+        // 두 벽의 방향을 확인
+        const isWallAVertical = Math.abs(wallA.wall.attr("x1") - wallA.wall.attr("x2")) < 1;
+        const isWallBVertical = Math.abs(wallB.wall.attr("x1") - wallB.wall.attr("x2")) < 1;
+  
+        // 두 벽이 수직으로 만나는 경우
+        if (isWallAVertical !== isWallBVertical) {
+          const width = isWallAVertical ? wallA.thickness : wallB.thickness;
+          const height = isWallAVertical ? wallB.thickness : wallA.thickness;
+  
+          // 모서리에 해당하는 사각형 생성
+          spaceLayer.rect(width, height)
+            .move(commonPoint.x - width / 2, commonPoint.y - height / 2)
+            .fill({ color: "#999", opacity: 1.0 })
+            .stroke({ width: 0 });
+        }
+      }
+    });
+  };
+
   // 다각형의 면적을 계산하는 함수
   const calculatePolygonArea = (points) => {
     let area = 0;
@@ -1434,6 +1491,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
           detectClosedSpaces();
           
           // 상태 저장
+          fillEmptyCorners();
           saveState();
         }
         break;
