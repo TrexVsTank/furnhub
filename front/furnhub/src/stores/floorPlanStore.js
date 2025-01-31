@@ -449,8 +449,6 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       // 시작점 스냅
       const snappedStart = getSnapPoint(coords, wallLayer.children(), true);
       toolState.rectStart = snappedStart;
-      // 시작점 키포인트 생성 후 저장 (추후 제거용)
-      toolState.rectStartKeyPoint = drawKeyPoint(snappedStart.x, snappedStart.y);
       // 미리보기 요소 생성
       toolState.rectPreview = draw.group().addClass('rect-preview');
       toolState.rectPreview.line(0, 0, 0, 0).stroke({ width: toolState.wallThickness, color: "#999", dasharray: "5,5" });
@@ -535,9 +533,6 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       toolState.rectPreview?.remove();
       toolState.rectLabels.width?.remove();
       toolState.rectLabels.height?.remove();
-      // 시작 키포인트 삭제 (ESC 키 눌렀을 때 포함)
-      toolState.rectStartKeyPoint?.remove();
-      toolState.rectStartKeyPoint = null;
       toolState.rectPreview = null;
       toolState.rectLabels.width = null;
       toolState.rectLabels.height = null;
