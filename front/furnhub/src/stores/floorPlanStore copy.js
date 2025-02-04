@@ -353,9 +353,10 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       drawKeyPoint(wall.attr('x2'), wall.attr('y2'));
     });
   };
+  
   // 모서리 채우기 함수
-  const fillEmptyCorners = () => {
-    spaceLayer.children().forEach(child => child.remove());
+  const fillCornerSpaces = () => {
+    draw.find('.corner-space').forEach(space => space.remove());
     
     // 벽들의 끝점을 Map으로 관리 (좌표를 키로 사용)
     const cornerMap = new Map();
@@ -374,7 +375,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
         cornerMap.get(key).push(wall);
       });
     });
-  
+
     // 교차점에서 모서리 처리
     cornerMap.forEach((walls, key) => {
       if (walls.length === 2) {
@@ -386,19 +387,21 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
         const isWallBVertical = Math.abs(wallB.attr('x1') - wallB.attr('x2')) < 1;
         
         if (isWallAVertical !== isWallBVertical) {
-          const thicknessA = wallA.data('wallThickness') || wallA.attr('stroke-width');
-          const thicknessB = wallB.data('wallThickness') || wallB.attr('stroke-width');
+          const thicknessA = wallA.attr('stroke-width');
+          const thicknessB = wallB.attr('stroke-width');
           
           const width = isWallAVertical ? thicknessA : thicknessB;
           const height = isWallAVertical ? thicknessB : thicknessA;
-  
-          spaceLayer.rect(width, height)
+          
+          draw.rect(width, height)
             .move(x - width/2, y - height/2)
-            .fill("#999");
+            .fill("#999")
+            .addClass('corner-space');
         }
       }
     });
   };
+  
   // 벽 그리기 함수
   const wallControls = {
     // 1. 시작
