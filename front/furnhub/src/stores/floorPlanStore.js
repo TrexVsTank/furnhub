@@ -75,6 +75,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
   // 벽 생성 컨트롤
   const wallControls = {
     start: (coords) => {
+      if (!isInBoundary(coords)) return;
       const snappedStart = getSnapPoint(coords, wallLayer.children());
       wallStart = {
         x: snapToMillimeter(snappedStart.x),
@@ -84,12 +85,13 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
         .stroke({ width: toolState.wallThickness, color: "#999", dasharray: "5,5" });
     },
     preview: (coords) => {
-      if (!wallStart) return;
+      if (!wallStart || !isInBoundary(coords)) return;
       const snappedEnd = getSnapPoint(coords, wallLayer.children());
       const end = getOrthogonalPoint(wallStart, snappedEnd);
       wallPreview?.plot(wallStart.x, wallStart.y, end.x, end.y);
     },
     onClick: (coords) => {
+      if (!isInBoundary(coords)) return;
       if (!wallStart) {
         wallControls.start(coords);
       } else {
@@ -185,15 +187,14 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     startPoint: null,
     preview: null,
   
-    // 시작점 설정
     start: (coords) => {
+      if (!isInBoundary(coords)) return;
       const snappedStart = getSnapPoint(coords, wallLayer.children());
       rectTool.startPoint = {
         x: snapToMillimeter(snappedStart.x),
         y: snapToMillimeter(snappedStart.y),
       };
       
-      // 프리뷰 생성
       rectTool.preview = draw.group().addClass('rect-preview');
       rectTool.preview
         .rect(0, 0)
@@ -203,7 +204,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     
     // 미리보기 업데이트
     move: (coords) => {
-      if (!rectTool.startPoint || !rectTool.preview) return;
+      if (!rectTool.startPoint || !rectTool.preview || !isInBoundary(coords)) return;
       
       const snappedEnd = getSnapPoint(coords, wallLayer.children());
       const currentPoint = {
@@ -242,7 +243,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     
     // 사각형 생성
     finish: (coords) => {
-      if (!rectTool.startPoint) return;
+      if (!rectTool.startPoint || !isInBoundary(coords)) return;
       saveState();
       
       const snappedEnd = getSnapPoint(coords, wallLayer.children());
@@ -855,6 +856,13 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     });
 
     wallLayer.front();
+  };
+
+  // 좌표제한 체크 함수
+  const isInBoundary = (coords) => {
+    const BOUNDARY = { min: -50000, max: 50000 };
+    return coords.x >= BOUNDARY.min && coords.x <= BOUNDARY.max && 
+           coords.y >= BOUNDARY.min && coords.y <= BOUNDARY.max;
   };
 
   // == 유틸리티 함수들 == //
