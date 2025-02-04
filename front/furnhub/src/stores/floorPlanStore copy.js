@@ -3,6 +3,7 @@ import { defineStore } from "pinia";
 import { SVG } from "@svgdotjs/svg.js";
 import { reactive, computed, watch } from "vue";
 
+// 이동스냅고쳐야됨
 export const useFloorPlanStore = defineStore("floorPlanStore", () => {
   
   // ===== SVG 객체 ===== //
@@ -14,9 +15,6 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     currentTool: "select",
     wallThickness: 100,
     snapDistance: 100,
-    rectStart: null,
-    rectPreview: null,
-    rectLabels: { width: null, height: null }
   });
   // 이벤트 처리기 실행 함수 (이벤트 이름, 이벤트 객체)
   const executeToolEvent = (eventName, event) => {
@@ -33,37 +31,16 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') return;
     switch (event.key) {
       case "Escape": // ESC
-        if (toolState.currentTool === 'rect') {
-          rectControls.cleanup();
-        } else {
-          wallStart = null;
-          cleanupPreview();
-        }
+        wallStart = null;
+        cleanupPreview();
         labelLayer.front();
         break;
       case "Delete": // Delete
         if (selection.selectedWall) {
-          // 레이블 제거
-          const wallStart = {
-            x: selection.selectedWall.attr('x1'),
-            y: selection.selectedWall.attr('y1')
-          };
-          const wallEnd = {
-            x: selection.selectedWall.attr('x2'),
-            y: selection.selectedWall.attr('y2')
-          };
-          const labels = labelLayer.find('.length-label');
-          labels.forEach(label => {
-            const labelX = parseFloat(label.attr('x'));
-            const labelY = parseFloat(label.attr('y'));
-            if (isPointNearLine(labelX, labelY, wallStart, wallEnd)) {
-              label.remove();
-            }
-          });
-          selection.selectedWall.remove(); selection.selectedWall = null; // 벽 제거
+          selection.selectedWall.remove(); 
+          selection.selectedWall = null;
           cleanupOrphanedElements(); // 고아 키 제거
-          detectClosedSpaces(); // 공간 갱신
-          fillEmptyCorners(); // 코너 갱신
+          fillEmptyCorners();
           saveState(); // 상태 저장
         }
         break;
@@ -114,22 +91,17 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
   const saveState = () => {
     const state = {
       walls: wallLayer.children().map(wall => ({
-        x1: parseFloat(wall.attr("x1")), y1: parseFloat(wall.attr("y1")),
-        x2: parseFloat(wall.attr("x2")), y2: parseFloat(wall.attr("y2")),
+        x1: parseFloat(wall.attr("x1")), 
+        y1: parseFloat(wall.attr("y1")),
+        x2: parseFloat(wall.attr("x2")), 
+        y2: parseFloat(wall.attr("y2")),
         thickness: wall.data("wallThickness")
       })),
-      labels: labelLayer.find(".length-label").map(label => {
-        const text = label.text().replace("mm", "");
-        if (!text || text === "0") return null;
-        return { text, x: label.attr("x"), y: label.attr("y") };
-      }).filter(label => label !== null),
       keyPoints: labelLayer.find(".key").map(key => ({
-        x: key.cx(), y: key.cy(), size: key.attr("r") * 2
+        x: key.cx(), 
+        y: key.cy(), 
+        size: key.attr("r") * 2
       })),
-      spaces: spaceLayer.children().map(space => ({
-        points: space.toArray ? space.toArray() : [],
-        fill: space.attr("fill"), opacity: space.attr("opacity")
-      }))
     };
     history.undoStack.push(JSON.stringify(state));
     history.redoStack = [];
@@ -146,15 +118,9 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
         .stroke({ width: wall.thickness, color: "#999" })
         .data("wallThickness", wall.thickness);
     });
-    state.labels.forEach(label => createLabel(label.text, label.x, label.y));
     state.keyPoints.forEach(point => drawKeyPoint(point.x, point.y));
-    state.spaces?.forEach(space => {
-      spaceLayer.polygon(space.points)
-        .fill({ color: space.fill, opacity: space.opacity })
-        .stroke({ width: 0 })
-        .addClass("space-fill");
-    });
-    detectClosedSpaces(); // 공간 갱신
+    fillEmptyCorners();
+    updateVisualElements();
   };
   // undo 함수
   const undo = () => {
@@ -226,16 +192,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
   };
   // 시각요소 갱신 함수
   const updateVisualElements = () => {
-    draw.find(".length-label").forEach(label => {
-      label.font({ size: viewbox.width * 0.025 });
-      label.front();
-    });
-    draw.find(".key").forEach(key => {
-      const { cx, cy } = key.attr();
-      key.size(viewbox.width * 0.02, viewbox.width * 0.02)
-        .stroke({ width: viewbox.width * 0.02 * 0.1 })
-        .center(cx, cy);
-    });
+    renderKeyPoints();
     labelLayer.front();
   };
   // 캔버스 초기화 함수
@@ -287,77 +244,162 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
 
   // ===== 벽 ===== //
   let wallLayer = null, labelLayer = null, spaceLayer = null; // 레이어
+  let isDragging = false;  let dragStartCoords = null; // 드래그용 변수
   const wallThicknessState = reactive({ value: 0 }); // 벽 두께 상태 (반응형)
   // 선택 상태 (반응형)
   const selection = reactive({ selectedWall: null }); // 현재 선택된 벽
+  // 벽 상태 (반응형)
+  const wallState = reactive({
+    thickness: 0,
+    length: 0
+  });
   // 선택 벽 두께 반환 함수
   const getSelectedWallThickness = computed(() => {
     return selection.selectedWall ? parseInt(selection.selectedWall.data("wallThickness")) || 100 : 0;
   });
-  // 선택 벽 두께 변경 함수
+  // 선택 벽 두께 업데이트 함수
   const updateSelectedWallThickness = (newThickness) => {
     if (!selection.selectedWall) return;
     let updatedThickness = typeof newThickness === "string" && newThickness.includes("+")
-      ? wallThicknessState.value + 10
+      ? parseInt(selection.selectedWall.data("wallThickness")) + 10
       : typeof newThickness === "string" && newThickness.includes("-")
-      ? wallThicknessState.value - 10
+      ? parseInt(selection.selectedWall.data("wallThickness")) - 10
       : parseInt(newThickness);
     if (isNaN(updatedThickness) || updatedThickness < 1) return;
+    // 벽 두께 업데이트
     selection.selectedWall.stroke({ width: updatedThickness });
     selection.selectedWall.data("wallThickness", updatedThickness);
-    wallThicknessState.value = updatedThickness;
+    // reactive한 상태 업데이트 (순서 중요)
+    wallState.thickness = updatedThickness;
+    // 선택 상태 갱신하여 watch 트리거
+    const currentWall = selection.selectedWall;
+    selection.selectedWall = null;
+    selection.selectedWall = currentWall;
+    fillEmptyCorners();
     saveState();
-    detectClosedSpaces(); // 공간 갱신
   };
-  // 선택한 벽의 두께 변경시 업데이트
+  // 선택 벽 길이 반환 함수 (computed에서 reactive로 변경)
+  const updateWallLength = () => {
+    if (!selection.selectedWall) return;
+    const x1 = parseFloat(selection.selectedWall.attr('x1'));
+    const y1 = parseFloat(selection.selectedWall.attr('y1'));
+    const x2 = parseFloat(selection.selectedWall.attr('x2')); 
+    const y2 = parseFloat(selection.selectedWall.attr('y2'));
+    wallState.length = calculateDistance({x: x1, y: y1}, {x: x2, y: y2});
+  };
+  // 선택 벽 길이 변경 함수 
+  const updateSelectedWallLength = (newLength) => {
+    if (!selection.selectedWall) return;
+    // 길이 계산
+    let updatedLength = typeof newLength === "string" && newLength.includes("+")
+      ? parseInt(wallState.length) + 100
+      : typeof newLength === "string" && newLength.includes("-")
+      ? parseInt(wallState.length) - 100
+      : parseInt(newLength);
+    if (isNaN(updatedLength) || updatedLength < 1) return;
+    // 현재 벽의 좌표
+    const x1 = parseFloat(selection.selectedWall.attr('x1'));
+    const y1 = parseFloat(selection.selectedWall.attr('y1'));
+    const x2 = parseFloat(selection.selectedWall.attr('x2'));
+    const y2 = parseFloat(selection.selectedWall.attr('y2'));
+    // 수평/수직 확인
+    const isHorizontal = Math.abs(y2 - y1) < Math.abs(x2 - x1);
+    // 새로운 끝점 계산
+    const newX2 = isHorizontal 
+      ? x1 + (x2 > x1 ? updatedLength : -updatedLength)
+      : x1;
+    const newY2 = isHorizontal
+      ? y1
+      : y1 + (y2 > y1 ? updatedLength : -updatedLength);
+    // 벽 끝점 업데이트
+    selection.selectedWall.plot(x1, y1, newX2, newY2);
+    // 키포인트 재렌더링 추가
+    renderKeyPoints();
+    // 길이 상태 업데이트
+    updateWallLength();
+    // 모서리 업데이트 및 상태 저장
+    fillEmptyCorners();
+    saveState();
+  };
+  // 벽 선택 시 상태 업데이트
   watch(() => selection.selectedWall, (newWall) => {
     if (newWall) {
-      wallThicknessState.value = parseInt(newWall.data("wallThickness")) || 100;
+      // 두께 갱신
+      wallState.thickness = parseInt(newWall.data("wallThickness")) || 100;
+      // 길이 갱신
+      updateWallLength();
+    } else {
+      wallState.thickness = 0;
+      wallState.length = 0;
     }
   });
   let wallStart = null; // 벽 시작
   let wallPreview = null; // 벽 미리보기
-  let lengthLabel = null; // 벽 길이
+  // 키 생성 함수
+  const drawKeyPoint = (x, y) => {
+    const keySize = viewbox.width * 0.02;
+    draw.circle(keySize)
+      .fill("#fff")
+      .stroke({ color: "#000", width: keySize * 0.1 })
+      .center(x, y)
+      .addClass("key");
+  };
+  // 키 렌더링 함수
+  const renderKeyPoints = () => {
+    draw.find('.key').forEach(key => key.remove());
+    
+    wallLayer.children().forEach(wall => {
+      drawKeyPoint(wall.attr('x1'), wall.attr('y1'));
+      drawKeyPoint(wall.attr('x2'), wall.attr('y2'));
+    });
+  };
   // 모서리 채우기 함수
   const fillEmptyCorners = () => {
-    const walls = wallLayer.children();
-    const corners = new Map();
-    // 모든 벽의 끝점을 찾아서 저장
-    walls.forEach(wall => {
-      const x1 = parseFloat(wall.attr("x1"));
-      const y1 = parseFloat(wall.attr("y1"));
-      const x2 = parseFloat(wall.attr("x2"));
-      const y2 = parseFloat(wall.attr("y2"));
-      const thickness = parseFloat(wall.data("wallThickness") || wall.attr("stroke-width"));
-      const key1 = `${x1},${y1}`;
-      const key2 = `${x2},${y2}`;
-      if (!corners.has(key1)) corners.set(key1, []);
-      if (!corners.has(key2)) corners.set(key2, []);
-      corners.get(key1).push({ x: x1, y: y1, thickness, wall });
-      corners.get(key2).push({ x: x2, y: y2, thickness, wall });
+    spaceLayer.children().forEach(child => child.remove());
+    
+    // 벽들의 끝점을 Map으로 관리 (좌표를 키로 사용)
+    const cornerMap = new Map();
+    
+    wallLayer.children().forEach(wall => {
+      const points = [
+        [wall.attr('x1'), wall.attr('y1')],
+        [wall.attr('x2'), wall.attr('y2')]
+      ];
+      
+      points.forEach(([x, y]) => {
+        const key = `${x},${y}`;
+        if (!cornerMap.has(key)) {
+          cornerMap.set(key, []);
+        }
+        cornerMap.get(key).push(wall);
+      });
     });
-    // 각 코너에서 2개 이상의 벽이 만나는 곳을 찾아 빈 모서리 채우기
-    corners.forEach((wallsAtCorner, key) => {
-      if (wallsAtCorner.length === 2) {
-        const [wallA, wallB] = wallsAtCorner;
-        const commonPoint = { x: wallA.x, y: wallA.y };
-        // 두 벽의 방향을 확인
-        const isWallAVertical = Math.abs(wallA.wall.attr("x1") - wallA.wall.attr("x2")) < 1;
-        const isWallBVertical = Math.abs(wallB.wall.attr("x1") - wallB.wall.attr("x2")) < 1;
-        // 두 벽이 수직으로 만나는 경우
+  
+    // 교차점에서 모서리 처리
+    cornerMap.forEach((walls, key) => {
+      if (walls.length === 2) {
+        const [wallA, wallB] = walls;
+        const [x, y] = key.split(',').map(Number);
+        
+        // 두 벽의 방향 확인 (수직/수평)
+        const isWallAVertical = Math.abs(wallA.attr('x1') - wallA.attr('x2')) < 1;
+        const isWallBVertical = Math.abs(wallB.attr('x1') - wallB.attr('x2')) < 1;
+        
         if (isWallAVertical !== isWallBVertical) {
-          const width = isWallAVertical ? wallA.thickness : wallB.thickness;
-          const height = isWallAVertical ? wallB.thickness : wallA.thickness;
-          // 모서리에 해당하는 사각형 생성
+          const thicknessA = wallA.data('wallThickness') || wallA.attr('stroke-width');
+          const thicknessB = wallB.data('wallThickness') || wallB.attr('stroke-width');
+          
+          const width = isWallAVertical ? thicknessA : thicknessB;
+          const height = isWallAVertical ? thicknessB : thicknessA;
+  
           spaceLayer.rect(width, height)
-            .move(commonPoint.x - width / 2, commonPoint.y - height / 2)
-            .fill({ color: "#999", opacity: 1.0 })
-            .stroke({ width: 0 });
+            .move(x - width/2, y - height/2)
+            .fill("#999");
         }
       }
     });
   };
-  // 벽 그리기 함수 (개선 : 끝점을 바운더리 밖에 놓았을 때 중단해야 함)
+  // 벽 그리기 함수
   const wallControls = {
     // 1. 시작
     start: (coords) => {
@@ -367,7 +409,6 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       wallStart = snappedStart;
       wallPreview = draw.line(wallStart.x, wallStart.y, wallStart.x, wallStart.y)
         .stroke({ width: viewbox.width * 0.01, color: "#999", dasharray: "5,5" });
-      lengthLabel = createLabel("0.00", wallStart.x, wallStart.y);
     },
     // 2. 미리보기
     preview: (coords) => {
@@ -386,162 +427,44 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
         finalEnd.x, finalEnd.y
       );
       const distance = calculateDistance(wallStart, finalEnd);
-      updateLabel(lengthLabel, distance, wallStart, finalEnd);
     },
     // 3. 완료
     finish: (coords) => {
-      if (!wallStart || !coords) return;
-      const orthogonalEnd = getOrthogonalPoint(wallStart, coords); // 직각
+      if (!wallStart || !coords || !isWithinBoundary(coords)) return;
+      
+      const orthogonalEnd = getOrthogonalPoint(wallStart, coords);
       const walls = wallLayer.children();
-      const snappedEnd = getSnapPoint(orthogonalEnd, walls); // 직각 -> 스냅
-      const finalEnd = { // 수평 수직 결정
+      const snappedEnd = getSnapPoint(orthogonalEnd, walls);
+      const finalEnd = {
         x: Math.abs(snappedEnd.x - wallStart.x) > Math.abs(snappedEnd.y - wallStart.y) 
           ? snappedEnd.x : wallStart.x,
         y: Math.abs(snappedEnd.x - wallStart.x) > Math.abs(snappedEnd.y - wallStart.y) 
           ? wallStart.y : snappedEnd.y
       };
-      const distance = calculateDistance(wallStart, finalEnd);
-      // 교차점 찾기
-      const intersections = findIntersections(wallStart, finalEnd, walls);
-      // 교차점이 있으면 분할
-      if (intersections.length > 0) {
-        intersections.forEach(splitWallAtIntersection);
-        createWallWithIntersections(wallStart, finalEnd, intersections);
-      } else {
-        // 교차점이 없을 때 -> 벽 / 레이블 , 키
-        wallLayer.line(wallStart.x, wallStart.y, finalEnd.x, finalEnd.y)
-          .stroke({ width: toolState.wallThickness, color: "#999" })
-          .data('wallThickness', toolState.wallThickness);
-        const midPoint = {
-          x: (wallStart.x + finalEnd.x) / 2,
-          y: (wallStart.y + finalEnd.y) / 2
-        };
-        createLabel(distance, midPoint.x, midPoint.y);
-      }
-      drawKeyPoint(wallStart.x, wallStart.y);
-      drawKeyPoint(finalEnd.x, finalEnd.y);
-      // 이전 미리보기 제거
+  
+      wallLayer.line(wallStart.x, wallStart.y, finalEnd.x, finalEnd.y)
+        .stroke({ width: toolState.wallThickness, color: "#999" })
+        .data('wallThickness', toolState.wallThickness);
+  
       wallPreview?.remove();
-      lengthLabel?.remove();
-      // 연속긋기를 위해 새 시작점, 미리보기 생성
       wallStart = finalEnd;
       wallPreview = draw.line(wallStart.x, wallStart.y, wallStart.x, wallStart.y)
         .stroke({ width: viewbox.width * 0.01, color: "#999", dasharray: "5,5" });
-      lengthLabel = createLabel("0", wallStart.x, wallStart.y);
-      labelLayer.front(); // 레이블 위로
-      detectClosedSpaces(); // 닫힌 공간 감지
-      saveState(); // 상태 저장
+      
+      renderKeyPoints();
+      fillEmptyCorners();
+      saveState();
     }
   };
   
-  // ===== 사각형 ===== //
-  // 사각형 그리기 관련 변수들
-  let rectPreview = null;         // 사각형 미리보기
-  let widthLabel = null;          // 가로 길이 레이블
-  let heightLabel = null;         // 세로 길이 레이블
-  // 사각형 그리기 관련 함수들
-  const rectControls = {
-    // 1. 시작작
-    start: (coords) => {
-      if (!isWithinBoundary(coords)) return;
-      // 현재 상태 저장
-      saveState();
-      // 시작점 스냅
-      const snappedStart = getSnapPoint(coords, wallLayer.children(), true);
-      toolState.rectStart = snappedStart;
-      // 미리보기 요소 생성
-      toolState.rectPreview = draw.group().addClass('rect-preview');
-      toolState.rectPreview.line(0, 0, 0, 0).stroke({ width: toolState.wallThickness, color: "#999", dasharray: "5,5" });
-      toolState.rectPreview.line(0, 0, 0, 0).stroke({ width: toolState.wallThickness, color: "#999", dasharray: "5,5" });
-      toolState.rectPreview.line(0, 0, 0, 0).stroke({ width: toolState.wallThickness, color: "#999", dasharray: "5,5" });
-      toolState.rectPreview.line(0, 0, 0, 0).stroke({ width: toolState.wallThickness, color: "#999", dasharray: "5,5" });
-      toolState.rectLabels.width = createLabel("0", snappedStart.x, snappedStart.y - 100);
-      toolState.rectLabels.height = createLabel("0", snappedStart.x + 100, snappedStart.y);
-    },
-    // 2. 미리보기
-    preview: (coords) => {
-      if (!toolState.rectStart || !coords) return;
-      // 현재 마우스 위치를 스냅
-      const snappedEnd = getSnapPoint(coords, wallLayer.children(), true);
-      // 사각형의 네 모서리 좌표 계산
-      const x1 = toolState.rectStart.x;
-      const y1 = toolState.rectStart.y;
-      const x2 = snappedEnd.x;
-      const y2 = snappedEnd.y;
-      // 미리보기 선 업데이트
-      const lines = toolState.rectPreview.children();
-      lines[0].plot(x1, y1, x2, y1);  // 위쪽 선
-      lines[1].plot(x2, y1, x2, y2);  // 오른쪽 선
-      lines[2].plot(x2, y2, x1, y2);  // 아래쪽 선
-      lines[3].plot(x1, y2, x1, y1);  // 왼쪽 선
-      // 길이 레이블 업데이트
-      const width = Math.abs(x2 - x1);
-      const height = Math.abs(y2 - y1);
-      toolState.rectLabels.width.text(`${width}mm`).center((x1 + x2) / 2, Math.min(y1, y2) - 100);
-      toolState.rectLabels.height.text(`${height}mm`).center(Math.max(x1, x2) + 100, (y1 + y2) / 2);
-    },
-    // 3. 끝
-    finish: (coords) => {
-      if (!toolState.rectStart || !coords) return;
-      // 현재 마우스 위치를 스냅
-      const snappedEnd = getSnapPoint(coords, wallLayer.children(), true);
-      // 사각형의 네 모서리 좌표 계산
-      const x1 = toolState.rectStart.x;
-      const y1 = toolState.rectStart.y;
-      const x2 = snappedEnd.x;
-      const y2 = snappedEnd.y;
-      // 사각형의 네 변을 순서대로 그리기
-      const lines = [
-        { start: { x: x1, y: y1 }, end: { x: x2, y: y1 } }, // 위쪽
-        { start: { x: x2, y: y1 }, end: { x: x2, y: y2 } }, // 오른쪽
-        { start: { x: x2, y: y2 }, end: { x: x1, y: y2 } }, // 아래쪽
-        { start: { x: x1, y: y2 }, end: { x: x1, y: y1 } }  // 왼쪽
-      ];
-      // 각 변마다 교차점 처리 및 벽 생성
-      lines.forEach(line => {
-        const walls = wallLayer.children();
-        const intersections = findIntersections(line.start, line.end, walls);
-        if (intersections.length > 0) {
-          // 교차점이 있으면 기존 벽을 분할하고 새 벽 생성
-          intersections.forEach(intersection => splitWallAtIntersection(intersection));
-          createWallWithIntersections(line.start, line.end, intersections);
-        } else {
-          // 교차점이 없으면 새 벽만 생성
-          const wall = wallLayer.line(line.start.x, line.start.y, line.end.x, line.end.y)
-            .stroke({ width: toolState.wallThickness, color: "#999" })
-            .data('wallThickness', toolState.wallThickness);
-          // 길이 레이블 추가
-          const distance = calculateDistance(line.start, line.end);
-          if (Math.abs(line.end.y - line.start.y) < 1) { // 가로 벽
-            createLabel(distance, (line.start.x + line.end.x) / 2, line.start.y - 100);
-          } else { // 세로 벽
-            createLabel(distance, line.start.x + 100, (line.start.y + line.end.y) / 2);
-          }
-        }
-        // 끝점마다 키포인트 추가
-        drawKeyPoint(line.start.x, line.start.y);
-      });
-      // 마지막 모서리 포인트 추가
-      drawKeyPoint(x1, y1);
-      // 미리보기 요소들 제거
-      rectControls.cleanup();
-      // 닫힌 공간 감지 및 상태 저장
-      detectClosedSpaces();
-      saveState();
-    },
-    cleanup: () => {
-      toolState.rectPreview?.remove();
-      toolState.rectLabels.width?.remove();
-      toolState.rectLabels.height?.remove();
-      toolState.rectPreview = null;
-      toolState.rectLabels.width = null;
-      toolState.rectLabels.height = null;
-      toolState.rectStart = null;
-      labelLayer.front();
-    }
-  };
-
   // ===== 유틸리티 ===== //
+  // UUID 생성 함수 추가
+  const generateUUID = () => {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      const r = Math.random() * 16 | 0;
+      return (c == 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+  };
   // 영역 확인 함수
   const isWithinBoundary = (point) => Math.abs(point.x) <= 50000 && Math.abs(point.y) <= 50000;
   // 점과 선분 거리 계산 함수
@@ -606,14 +529,6 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       const wallEnd = { x: wall.attr('x2'), y: wall.attr('y2') };
       const intersection = getIntersectionPoint(newStart, newEnd, wallStart, wallEnd);
       if (intersection) {
-        const labels = labelLayer.find('.length-label');
-        labels.forEach(label => {
-          const labelX = parseFloat(label.attr('x'));
-          const labelY = parseFloat(label.attr('y'));
-          if (isPointNearLine(labelX, labelY, wallStart, wallEnd)) {
-            label.remove();
-          }
-        });
         intersections.push({
           point: intersection,
           wall: wall
@@ -643,51 +558,65 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       wallLayer.line(wallStart.x, wallStart.y, point.x, point.y)
         .stroke({ width: originalThickness, color: "#999" })
         .data('wallThickness', originalThickness);
-      const distance1 = calculateDistance(wallStart, point);
-      createLabel(distance1, (wallStart.x + point.x) / 2, (wallStart.y + point.y) / 2);
     }
     if (calculateDistance(point, wallEnd) > 0) {
       wallLayer.line(point.x, point.y, wallEnd.x, wallEnd.y)
         .stroke({ width: originalThickness, color: "#999" })
         .data('wallThickness', originalThickness);;
-      const distance2 = calculateDistance(point, wallEnd);
-      createLabel(distance2, (point.x + wallEnd.x) / 2, (point.y + wallEnd.y) / 2);
     }
     drawKeyPoint(point.x, point.y);
   };
-  // 점이 선분 근처에 있는지 확인 함수
-  const isPointNearLine = (px, py, lineStart, lineEnd) => {
-    const buffer = toolState.wallThickness;
-    const lineLength = Math.sqrt(
-      Math.pow(lineEnd.x - lineStart.x, 2) + 
-      Math.pow(lineEnd.y - lineStart.y, 2)
-    );
-    const d1 = Math.sqrt(Math.pow(px - lineStart.x, 2) + Math.pow(py - lineStart.y, 2));
-    const d2 = Math.sqrt(Math.pow(px - lineEnd.x, 2) + Math.pow(py - lineEnd.y, 2));
-    const tolerance = buffer;
-    return Math.abs(d1 + d2 - lineLength) <= tolerance;
-  };
-  // 교차점 고려 새 벽 생성 함수
+  // createWallWithIntersections 수정
   const createWallWithIntersections = (start, end, intersections) => {
-    const existingLabels = labelLayer.find('.length-label');
     let currentStart = start;
     const segments = [...intersections, { point: end }];
-    segments.forEach((current, index) => {
-      const { point, wall } = current;
+    let lastWall = null;
+    
+    segments.forEach((current) => {
+      const { point } = current;
       if (calculateDistance(currentStart, point) > 1) {
-        wallLayer.line(currentStart.x, currentStart.y, point.x, point.y)
+        const wallId = generateUUID();
+        lastWall = wallLayer.line(currentStart.x, currentStart.y, point.x, point.y)
           .stroke({ width: toolState.wallThickness, color: "#999" })
-          .data('wallThickness', toolState.wallThickness);
-        const distance = calculateDistance(currentStart, point);
-        createLabel(distance, (currentStart.x + point.x) / 2, (currentStart.y + point.y) / 2);
+          .data('wallThickness', toolState.wallThickness)
+          .data('id', wallId);
+        
+        drawKeyPoint(currentStart.x, currentStart.y, wallId);
+        drawKeyPoint(point.x, point.y, wallId);
       }
       currentStart = point;
     });
+    return lastWall;
   };
   // 스냅 함수
-  const getSnapPoint = (currentPoint, walls, isStart = false) => {
+  const getSnapPoint = (currentPoint, walls, isStart = false, isMoving = false) => {
     currentPoint = roundPoint(currentPoint);
     const SNAP_THRESHOLD = toolState.snapDistance;
+   
+    if (isMoving) {
+      // 키포인트 간 스냅 로직
+      const points = walls.reduce((acc, wall) => {
+        acc.push(wall.find('.key')[0], wall.find('.key')[1]);
+        return acc;
+      }, []).filter(Boolean);
+      
+      let closest = null;
+      let minDistance = toolState.snapDistance;
+      
+      points.forEach(key => {
+        const distance = Math.sqrt(
+          Math.pow(key.cx() - currentPoint.x, 2) + 
+          Math.pow(key.cy() - currentPoint.y, 2)
+        );
+        if (distance < minDistance) {
+          minDistance = distance;
+          closest = { x: key.cx(), y: key.cy() };
+        }
+      });
+      
+      return closest || currentPoint;
+    }
+   
     if (isStart) {
       let closestKeyPoint = null;
       let minKeyDistance = SNAP_THRESHOLD;
@@ -708,6 +637,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
         });
       });
       if (closestKeyPoint) return closestKeyPoint;
+   
       let closestPerp = null;
       let minPerpDistance = SNAP_THRESHOLD;
       walls.forEach(wall => {
@@ -735,6 +665,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       });
       return closestPerp || currentPoint;
     }
+   
     let closestPoint = null;
     let minDistance = SNAP_THRESHOLD;
     walls.forEach(wall => {
@@ -786,206 +717,135 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     point.y = event.clientY;
     return point.matrixTransform(draw.node.getScreenCTM().inverse());
   };
-  // 길이 레이블 생성 함수
-  const createLabel = (text, x, y) => {
-    const label = draw.text(`${text}mm`)
-      .font({ size: viewbox.width * 0.025, anchor: "middle" })  // 크기와 중앙 정렬
-      .fill("#000")  // 검은색 글자
-      .center(x, y)  // 위치 설정
-      .addClass("length-label")  // 크기 조절을 위한 클래스
-      .css({ "pointer-events": "none" });
-    labelLayer.add(label);  // 레이블 레이어에 추가
-    labelLayer.front();  // 최상단에 표시
-    return label;
-  };
-  // 길이 라벨 갱신 함수
-  const updateLabel = (label, distance, start, end) => {
-    if (!label) return;
-    const midX = (start.x + end.x) / 2;  // 벽의 중간 x좌표
-    const midY = (start.y + end.y) / 2;  // 벽의 중간 y좌표
-    label.text(`${distance}mm`).center(midX, midY);  // 위치와 텍스트 갱신
-  };
   // 벽 미리보기 제거 함수
   const cleanupPreview = () => {
     wallPreview?.remove();  // 미리보기 선 제거
-    lengthLabel?.remove();  // 길이 레이블 제거
     wallPreview = null;  
-    lengthLabel = null;
     labelLayer.front();  // 레이블 레이어 최상단으로
-  };
-  // 닫힌 공간 감지 함수 (개선 : 갈아엎을 예정)
-  const detectClosedSpaces = () => {
-    const walls = wallLayer.children();
-    const segments = [];
-    const points = new Set();
-    const connections = new Map();
-    // 벽 세그먼트와 연결점 정보 수집
-    walls.forEach(wall => {
-      const x1 = Math.round(parseFloat(wall.attr('x1')));
-      const y1 = Math.round(parseFloat(wall.attr('y1')));
-      const x2 = Math.round(parseFloat(wall.attr('x2')));
-      const y2 = Math.round(parseFloat(wall.attr('y2')));
-      const p1 = `${x1},${y1}`;
-      const p2 = `${x2},${y2}`;
-      points.add(p1);
-      points.add(p2);
-      // 양방향 연결 정보 저장
-      if (!connections.has(p1)) connections.set(p1, new Set());
-      if (!connections.has(p2)) connections.set(p2, new Set());
-      connections.get(p1).add(p2);
-      connections.get(p2).add(p1);
-      segments.push({ x1, y1, x2, y2 });
-    });
-    // 모든 가능한 시작점에서 닫힌 경로 찾기
-    const closedPaths = [];
-    const pointsArray = Array.from(points);
-    // 각 시작점에서 모든 가능한 닫힌 경로 찾기
-    for (let i = 0; i < pointsArray.length; i++) {
-      const start = pointsArray[i];
-      const pathsFromStart = [];
-      findClosedPath(start, connections, new Set(), [start], pathsFromStart);
-      closedPaths.push(...pathsFromStart);
-    }
-    // 기존 채우기 제거
-    spaceLayer.clear();
-    labelLayer.find('.area-label').forEach(label => label.remove());
-    // 찾은 각 닫힌 공간을 채우기
-    const uniquePaths = removeDuplicatePaths(closedPaths);
-    uniquePaths.forEach(path => {
-      if (path.length >= 4) {  // 최소 4개의 점이 필요
-        const points = path.map(coords => coords).join(' ');
-        // 다각형 그리기
-        spaceLayer.polygon(points)
-          .fill({ color: '#e6e6e6', opacity: 0.3 })
-          .stroke({ width: 0 })
-          .addClass('space-fill');
-      }
-    });
-    fillEmptyCorners(); // 모서리 갱신
-  };
-  // 주어진 시작점에서 닫힌 경로 찾기 함수
-  const findClosedPath = (current, connections, visited, path, allPaths) => {
-    const neighbors = connections.get(current);
-    // 현재 경로가 3개 이상의 점을 가지고 있고, 시작점으로 돌아올 수 있는 경우
-    if (path.length >= 3 && neighbors.has(path[0])) {
-      // 유효한 닫힌 경로를 찾으면 결과 배열에 추가
-      allPaths.push([...path]);
-      // 계속해서 다른 경로도 찾기 위해 null 대신 false 반환
-      return false;
-    }
-    // 이웃한 점들을 순회하며 경로 탐색
-    for (const next of neighbors) {
-      const edge = `${current}-${next}`;
-      if (!visited.has(edge)) {
-        // 이미 방문한 점인지 확인 (시작점 제외)
-        if (path.length > 0 && path.includes(next) && next !== path[0]) {
-          continue;
-        }
-        visited.add(edge);
-        visited.add(`${next}-${current}`);
-        findClosedPath(next, connections, visited, [...path, next], allPaths);
-        visited.delete(edge);
-        visited.delete(`${next}-${current}`);
-      }
-    }
-    return false;
-  };
-  // 중복된 경로 제거
-  const removeDuplicatePaths = (paths) => {
-    const uniquePaths = new Set();
-    paths.forEach(path => {
-      if (path.length >= 4) {  // 최소 4개의 점이 필요
-        // 경로를 정규화(시작점을 가장 작은 좌표로)
-        const normalized = normalizePath(path);
-        // 면적이 0보다 큰 경로만 추가
-        const coords = normalized.map(point => {
-          const [x, y] = point.split(',').map(Number);
-          return [x, y];
-        });
-        const area = Math.abs(calculatePolygonArea(coords));
-        if (area > 100) {  // 최소 면적 기준 (예: 100mm²)
-          uniquePaths.add(normalized.join(' '));
-        }
-      }
-    });
-    return Array.from(uniquePaths).map(pathStr => pathStr.split(' '));
-  };
-  // 경로 정규화 (시작점을 가장 작은 좌표로)
-  const normalizePath = (path) => {
-    let minIndex = 0;
-    let minValue = path[0];
-    for (let i = 1; i < path.length; i++) {
-      if (path[i] < minValue) {
-        minValue = path[i];
-        minIndex = i;
-      }
-    }
-    return [
-      ...path.slice(minIndex),
-      ...path.slice(0, minIndex)
-    ];
-  };
-  // 다각형의 면적을 계산하는 함수
-  const calculatePolygonArea = (points) => {
-    let area = 0;
-    const numPoints = points.length;
-    for (let i = 0; i < numPoints; i++) {
-      const j = (i + 1) % numPoints;
-      const [x1, y1] = points[i];
-      const [x2, y2] = points[j];
-      area += x1 * y2;
-      area -= y1 * x2;
-    }
-    return Math.abs(area) / 2;
-  };
-  // 키 생성 함수
-  const drawKeyPoint = (x, y) => {
-    const keySize = viewbox.width * 0.02;
-    const key = draw.circle(keySize)
-      .fill("#fff")
-      .stroke({ color: "#000", width: keySize * 0.1 })
-      .center(x, y)
-      .addClass("key");
-    labelLayer.add(key);
-    key.front();
-    return key;
   };
 
   // ===== 도구 이벤트 설정 ===== //
   const tools = {
     // 1. 선택
     select: {
-      onClick: event => { // 클릭
+      onClick: event => {
         const coords = getSVGCoordinates(event);
-        // 이전 선택 해제
-        if (selection.selectedWall) {
-          selection.selectedWall.stroke({ color: "#999" });
-          selection.selectedWall = null;
-        }
-        // 벽 선택 (클릭한 점에서 가장 가까운 벽 찾기)
         const walls = wallLayer.children();
         let closestWall = null;
         let minDistance = Infinity;
+        
         walls.forEach(wall => {
           const start = { x: wall.attr('x1'), y: wall.attr('y1') };
           const end = { x: wall.attr('x2'), y: wall.attr('y2') };
-          // 점과 선분 사이의 최단 거리 계산
           const distance = pointToLineDistance(coords, start, end);
-          // 선택 허용 범위 내에서 가장 가까운 벽 찾기
+          
           if (distance < minDistance && distance < toolState.snapDistance) {
             minDistance = distance;
             closestWall = wall;
           }
         });
-        // 가장 가까운 벽이 있으면 선택
+    
+        // 이미 선택된 벽을 다시 클릭한 경우 드래그 모드 시작
+        if (closestWall === selection.selectedWall) {
+          isDragging = true;
+          dragStartCoords = coords;
+          return;
+        }
+        
+        // 이전 선택 해제
+        if (selection.selectedWall) {
+          selection.selectedWall.stroke({ color: "#999" });
+          selection.selectedWall = null;
+        }
+        
+        // 새로운 벽 선택
         if (closestWall) {
           selection.selectedWall = closestWall;
-          selection.selectedWall.stroke({ color: "#007bff" }); // 선택된 벽 강조
+          selection.selectedWall.stroke({ color: "#007bff" });
         }
       },
-      onMouseDown: panControls.start, // 마우스 다운
-      onMouseMove: panControls.move, // 드래그
-      onMouseUp: panControls.stop // 마우스 업
+      onMouseDown: event => {
+        const coords = getSVGCoordinates(event);
+        
+        // 선택된 벽이 있고 그 위에서 마우스 다운한 경우에만 드래그 시작
+        if (selection.selectedWall) {
+          const start = { x: selection.selectedWall.attr('x1'), y: selection.selectedWall.attr('y1') };
+          const end = { x: selection.selectedWall.attr('x2'), y: selection.selectedWall.attr('y2') };
+          const distance = pointToLineDistance(coords, start, end);
+          
+          if (distance < toolState.snapDistance) {
+            isDragging = true;
+            dragStartCoords = coords;
+            return;
+          }
+        }
+        
+        // 그 외의 경우는 화면 이동
+        panControls.start(event);
+      },
+  
+      onMouseMove: event => {
+        if (isDragging && selection.selectedWall) {
+          let coords = getSVGCoordinates(event);
+          let dx = coords.x - dragStartCoords.x;
+          let dy = coords.y - dragStartCoords.y;
+          
+          const wall = selection.selectedWall;
+          const isHorizontal = Math.abs(wall.attr('y1') - wall.attr('y2')) < Math.abs(wall.attr('x1') - wall.attr('x2'));
+          
+          // 이동할 좌표 계산
+          let movedX1 = parseFloat(wall.attr('x1')) + dx;
+          let movedY1 = parseFloat(wall.attr('y1')) + dy;
+          let movedX2 = parseFloat(wall.attr('x2')) + dx;
+          let movedY2 = parseFloat(wall.attr('y2')) + dy;
+          
+          // 다른 벽들에서 키포인트 수집
+          const otherWalls = wallLayer.children().filter(w => w !== wall);
+          const point1 = getSnapPoint({x: movedX1, y: movedY1}, otherWalls, false, true);
+          const point2 = getSnapPoint({x: movedX2, y: movedY2}, otherWalls, false, true);
+          
+          // 스냅된 점이 있으면 적용
+          if (point1) {
+            movedX1 = point1.x;
+            movedY1 = point1.y;
+          }
+          if (point2) {
+            movedX2 = point2.x;
+            movedY2 = point2.y;
+          }
+          
+          // 수평/수직 유지
+          if (isHorizontal) {
+            const avgY = (movedY1 + movedY2) / 2;
+            movedY1 = avgY;
+            movedY2 = avgY;
+          } else {
+            const avgX = (movedX1 + movedX2) / 2;
+            movedX1 = avgX;
+            movedX2 = avgX;
+          }
+      
+          if (isWithinBoundary({x: movedX1, y: movedY1}) && isWithinBoundary({x: movedX2, y: movedY2})) {
+            wall.plot(movedX1, movedY1, movedX2, movedY2);
+            dragStartCoords = coords;
+            renderKeyPoints();
+            fillEmptyCorners();
+          }
+        } else {
+          panControls.move(event);
+        }
+      },
+  
+      onMouseUp: event => {
+        if (isDragging) {
+          isDragging = false;
+          dragStartCoords = null;
+          if (selection.selectedWall) {
+            saveState();
+          }
+        }
+        panControls.stop();
+      }
     },
     // 2. 벽
     wall: {
@@ -994,18 +854,6 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
         !wallStart ? wallControls.start(coords) : wallControls.finish(coords);
       },
       onMouseMove: event => wallControls.preview(getSVGCoordinates(event)) // 이동
-    },
-    // 3. 사각형
-    rect: {
-      onClick: event => {
-        const coords = getSVGCoordinates(event);
-        !toolState.rectStart ? rectControls.start(coords) : rectControls.finish(coords);
-      },
-      onMouseMove: event => {
-        if (toolState.rectStart) {
-          rectControls.preview(getSVGCoordinates(event));
-        }
-      }
     }
   };
   
@@ -1015,6 +863,8 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     selection,
     getSelectedWallThickness,
     updateSelectedWallThickness,
+    wallState,
+    updateSelectedWallLength,
     initializeCanvas,
     executeToolEvent,
     zoomCanvas,
@@ -1033,7 +883,6 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     },
     undo,
     redo,
-    detectClosedSpaces
   };
 
 });

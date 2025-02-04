@@ -12,4 +12,8 @@ export default defineConfig({
     },
   },
   logLevel: "info",
+  server: {
+    host: '0.0.0.0', // 외부 접속 허용
+    port: 8081,      // 기본 포트 설정
+  },
 });

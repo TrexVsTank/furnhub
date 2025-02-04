@@ -45,7 +45,6 @@ onMounted(() => {
         @input="store.setWallThickness($event.target.value)"
         min="1"
         step="10"
-        placeholder="100"
         >
         <div>
           <button @click="store.setWallThickness(store.toolState.wallThickness - 10)">-</button>
@@ -60,7 +59,6 @@ onMounted(() => {
           @input="store.setSnapDistance($event.target.value)"
           min="1"
           step="10"
-          placeholder="100"
         >
         <div>
           <button @click="store.setSnapDistance(store.toolState.snapDistance - 10)">-</button>
@@ -86,43 +84,47 @@ onMounted(() => {
     <aside class="sidebar right">
       <router-link to="furniture-editor"><button>가구배치로</button></router-link>
       <p>속성 편집</p>
-      <!-- 오른쪽 속성 사이드바의 벽 선택시 속성 부분 -->
-      <div v-if="store.selection.selectedWall">
-        <!-- 기존 벽 두께 조절 UI -->
+
+      <!-- 선택된 벽 속성 표시 -->
+      <div v-if="store.selection.selectedWallId">
+        <!-- 벽 두께 조절 UI -->
         <div>
           <label>벽 두께 (mm)</label>
           <input 
             type="number" 
-            :value="store.getSelectedWallThickness"
+            :value="store.selectedWallThickness"
             @input="store.updateSelectedWallThickness($event.target.value)"
             min="1"
             step="10"
-          >
+          />
           <div>
             <button @click="store.updateSelectedWallThickness('-')">-</button>
             <button @click="store.updateSelectedWallThickness('+')">+</button>
           </div>
         </div>
+
         <!-- 벽 길이 조절 UI -->
         <div>
           <label>벽 길이 (mm)</label>
           <input 
             type="number" 
-            :value="store.wallState.length"
+            :value="store.selectedWallLength"
             @input="store.updateSelectedWallLength($event.target.value)"
             min="1"
             step="100"
-          >
+          />
           <div>
             <button @click="store.updateSelectedWallLength('-')">-</button>
             <button @click="store.updateSelectedWallLength('+')">+</button>
           </div>
         </div>
       </div>
-      <div v-else>
-        <p>선택된 개체가 없습니다.</p>
-      </div>
-    </aside>
+
+  <div v-else>
+    <p>선택된 개체가 없습니다.</p>
+  </div>
+</aside>
+
 
   </div>
 </template>
