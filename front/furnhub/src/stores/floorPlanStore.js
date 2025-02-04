@@ -4,7 +4,6 @@ import { SVG } from "@svgdotjs/svg.js";
 import { reactive, computed, watch } from "vue";
 import { v4 as uuidv4 } from "uuid";
 
-// 이동스냅고쳐야됨
 export const useFloorPlanStore = defineStore("floorPlanStore", () => {
   
   // 객체 선언
