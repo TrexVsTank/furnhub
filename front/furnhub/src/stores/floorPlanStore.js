@@ -32,7 +32,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     return walls.find(wall => wall.id === selection.selectedWallId) || null;
   });
 
-  const viewbox = reactive({ x: -3000, y: -3000, width: 6000, height: 6000 });
+  const viewbox = reactive({ x: -2000, y: -2000, width: 4000, height: 4000 });
   
   // 팬 컨트롤
   const panControls = {
