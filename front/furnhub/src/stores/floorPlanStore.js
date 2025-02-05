@@ -825,7 +825,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       ];
       
       points.forEach(([x, y]) => {
-        const key = `${x},${y}`;
+        const key = `${Math.round(x)},${Math.round(y)}`;
         if (!cornerMap.has(key)) {
           cornerMap.set(key, []);
         }
@@ -842,8 +842,8 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
         const [x, y] = key.split(',').map(Number);
         
         // 두 벽의 방향 확인 (수직/수평)
-        const isWallAVertical = Math.abs(wallA.attr('x1') - wallA.attr('x2')) < 1;
-        const isWallBVertical = Math.abs(wallB.attr('x1') - wallB.attr('x2')) < 1;
+        const isWallAVertical = Math.abs(wallA.attr('x1') - wallA.attr('x2')) < 5;
+        const isWallBVertical = Math.abs(wallB.attr('x1') - wallB.attr('x2')) < 5;
         
         if (isWallAVertical !== isWallBVertical) {
           const thicknessA = wallA.attr('stroke-width');
