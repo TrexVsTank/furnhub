@@ -290,6 +290,250 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     }
   };
 
+
+  /////////////////////////////////////////////////////
+  // 치수 표시 관련 함수들
+  const dimensionControls = {
+    dimensionLayer: null,
+    OFFSET: 100,
+  
+    initialize: () => {
+      dimensionControls.dimensionLayer = draw.group().addClass("dimension-layer");
+    },
+  
+    clear: () => {
+      draw.find('.dimension').forEach(dim => dim.remove());
+    },
+  
+    // V자 화살표 그리기
+    drawArrow: (x, y, angle, isStart) => {
+      const arrowSize = 50;
+      const arrowAngle = Math.PI * 0.5;
+      const direction = isStart ? 1 : -1;
+      
+      const p1 = {
+        x: x + direction * arrowSize * Math.cos(angle + arrowAngle),
+        y: y + direction * arrowSize * Math.sin(angle + arrowAngle)
+      };
+      const p2 = { x, y };
+      const p3 = {
+        x: x + direction * arrowSize * Math.cos(angle - arrowAngle),
+        y: y + direction * arrowSize * Math.sin(angle - arrowAngle)
+      };
+      
+      return dimensionControls.dimensionLayer
+        .polyline([[p1.x, p1.y], [p2.x, p2.y], [p3.x, p3.y]])
+        .fill('none')
+        .stroke({ width: 5, color: '#000' })
+        .addClass('dimension');
+    },
+  
+    // 벽체의 실제 외곽점 구하기
+    getWallOuterPoints: (wall) => {
+      const halfThickness = wall.thickness / 2;
+      const angle = Math.atan2(wall.y2 - wall.y1, wall.x2 - wall.x1);
+      const perpAngle = angle + Math.PI / 2;
+  
+      return {
+        outer1: {
+          x: wall.x1 - halfThickness * Math.cos(perpAngle),
+          y: wall.y1 - halfThickness * Math.sin(perpAngle)
+        },
+        outer2: {
+          x: wall.x2 - halfThickness * Math.cos(perpAngle),
+          y: wall.y2 - halfThickness * Math.sin(perpAngle)
+        },
+        inner1: {
+          x: wall.x1 + halfThickness * Math.cos(perpAngle),
+          y: wall.y1 + halfThickness * Math.sin(perpAngle)
+        },
+        inner2: {
+          x: wall.x2 + halfThickness * Math.cos(perpAngle),
+          y: wall.y2 + halfThickness * Math.sin(perpAngle)
+        }
+      };
+    },
+  
+    // 연결된 벽체 찾기
+    findConnectedWalls: (walls) => {
+      const groups = [];
+      const used = new Set();
+  
+      const addToGroup = (wall, group) => {
+        if (used.has(wall.id)) return;
+        used.add(wall.id);
+        group.walls.push(wall);
+  
+        // 벽체의 끝점들
+        const points = [
+          { x: wall.x1, y: wall.y1 },
+          { x: wall.x2, y: wall.y2 }
+        ];
+  
+        // 연결된 다른 벽체 찾기
+        points.forEach(point => {
+          walls.forEach(other => {
+            if (!used.has(other.id)) {
+              if (Math.hypot(other.x1 - point.x, other.y1 - point.y) < 1 ||
+                  Math.hypot(other.x2 - point.x, other.y2 - point.y) < 1) {
+                addToGroup(other, group);
+              }
+            }
+          });
+        });
+      };
+  
+      walls.forEach(wall => {
+        if (!used.has(wall.id)) {
+          const group = { walls: [] };
+          addToGroup(wall, group);
+          groups.push(group);
+        }
+      });
+  
+      return groups;
+    },
+  
+    // 치수선 그리기
+    drawDimensionLine: (p1, p2, length, isVertical = false) => {
+      const line = dimensionControls.dimensionLayer
+        .line(p1.x, p1.y, p2.x, p2.y)
+        .stroke({ width: 1, color: '#000' })
+        .addClass('dimension');
+  
+      const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
+      
+      dimensionControls.drawArrow(p1.x, p1.y, angle, true);
+      dimensionControls.drawArrow(p2.x, p2.y, angle, false);
+  
+      // 텍스트 위치
+      const textPoint = {
+        x: (p1.x + p2.x) / 2,
+        y: (p1.y + p2.y) / 2
+      };
+  
+      // 치수 텍스트
+      dimensionControls.dimensionLayer
+        .text(`${Math.round(length)}mm`)
+        .font({
+          family: 'Arial',
+          size: 80,
+          anchor: 'middle',
+          fill: '#000'
+        })
+        .addClass('dimension')
+        .center(textPoint.x, textPoint.y)
+        .rotate(isVertical ? 90 : 0);
+    },
+  
+    // 벽체 그룹의 치수 계산
+    calculateGroupDimensions: (group) => {
+      let minX = Infinity, maxX = -Infinity;
+      let minY = Infinity, maxY = -Infinity;
+      let innerMinX = Infinity, innerMaxX = -Infinity;
+      let innerMinY = Infinity, innerMaxY = -Infinity;
+  
+      group.walls.forEach(wall => {
+        const points = dimensionControls.getWallOuterPoints(wall);
+        
+        // 외측 경계
+        [points.outer1, points.outer2].forEach(p => {
+          minX = Math.min(minX, p.x);
+          maxX = Math.max(maxX, p.x);
+          minY = Math.min(minY, p.y);
+          maxY = Math.max(maxY, p.y);
+        });
+  
+        // 내측 경계
+        [points.inner1, points.inner2].forEach(p => {
+          innerMinX = Math.min(innerMinX, p.x);
+          innerMaxX = Math.max(innerMaxX, p.x);
+          innerMinY = Math.min(innerMinY, p.y);
+          innerMaxY = Math.max(innerMaxY, p.y);
+        });
+      });
+  
+      return {
+        outer: {
+          x: { min: minX, max: maxX },
+          y: { min: minY, max: maxY }
+        },
+        inner: {
+          x: { min: innerMinX, max: innerMaxX },
+          y: { min: innerMinY, max: innerMaxY }
+        }
+      };
+    },
+  
+    render: () => {
+      dimensionControls.clear();
+      const groups = dimensionControls.findConnectedWalls(walls);
+  
+      groups.forEach(group => {
+        const dims = dimensionControls.calculateGroupDimensions(group);
+        const offset = dimensionControls.OFFSET;
+  
+        // 외측 치수선
+        // 가로
+        if (dims.outer.x.max > dims.outer.x.min) {
+          // 상단
+          dimensionControls.drawDimensionLine(
+            { x: dims.outer.x.min, y: dims.outer.y.min - offset },
+            { x: dims.outer.x.max, y: dims.outer.y.min - offset },
+            dims.outer.x.max - dims.outer.x.min
+          );
+  
+          // 하단
+          dimensionControls.drawDimensionLine(
+            { x: dims.outer.x.min, y: dims.outer.y.max + offset },
+            { x: dims.outer.x.max, y: dims.outer.y.max + offset },
+            dims.outer.x.max - dims.outer.x.min
+          );
+        }
+  
+        // 세로
+        if (dims.outer.y.max > dims.outer.y.min) {
+          // 좌측
+          dimensionControls.drawDimensionLine(
+            { x: dims.outer.x.min - offset, y: dims.outer.y.min },
+            { x: dims.outer.x.min - offset, y: dims.outer.y.max },
+            dims.outer.y.max - dims.outer.y.min,
+            true
+          );
+  
+          // 우측
+          dimensionControls.drawDimensionLine(
+            { x: dims.outer.x.max + offset, y: dims.outer.y.min },
+            { x: dims.outer.x.max + offset, y: dims.outer.y.max },
+            dims.outer.y.max - dims.outer.y.min,
+            true
+          );
+        }
+  
+        // 내측 치수선
+        if (dims.inner.x.max > dims.inner.x.min) {
+          // 가로
+          dimensionControls.drawDimensionLine(
+            { x: dims.inner.x.min, y: (dims.inner.y.min + dims.inner.y.max) / 2 },
+            { x: dims.inner.x.max, y: (dims.inner.y.min + dims.inner.y.max) / 2 },
+            dims.inner.x.max - dims.inner.x.min
+          );
+        }
+  
+        if (dims.inner.y.max > dims.inner.y.min) {
+          // 세로
+          dimensionControls.drawDimensionLine(
+            { x: (dims.inner.x.min + dims.inner.x.max) / 2, y: dims.inner.y.min },
+            { x: (dims.inner.x.min + dims.inner.x.max) / 2, y: dims.inner.y.max },
+            dims.inner.y.max - dims.inner.y.min,
+            true
+          );
+        }
+      });
+    }
+  };
+  /////////////////////////////////////////////////////
+
   // walls 상태 변경을 추적하기 위한 history 스택 추가
   const history = reactive({
     undoStack: [],  // 실행 취소용 스택
@@ -354,6 +598,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
   const updateVisualElements = () => {
     fillCornerSpaces();
     renderKeyPoints();
+    dimensionControls.render();
   };
 
   // 직각 보정 함수
@@ -890,6 +1135,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     addGrid();
     draw.viewbox(viewbox.x, viewbox.y, viewbox.width, viewbox.height);
     wallLayer = draw.group().addClass("wall-layer");
+    dimensionControls.initialize();
   };
     
   // 마우스 좌표 -> SVG좌표 함수

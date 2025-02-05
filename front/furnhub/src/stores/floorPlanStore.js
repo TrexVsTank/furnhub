@@ -354,6 +354,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
   const updateVisualElements = () => {
     fillCornerSpaces();
     renderKeyPoints();
+    renderLengthLabels();
   };
 
   // 직각 보정 함수
@@ -381,7 +382,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       .addClass("key")
   };
 
-  // 키 렌더링
+  // 키 렌더링 함수
   const renderKeyPoints = () => {
     draw.find('.key').forEach(key => key.remove());
     wallLayer.children().forEach(wall => {
@@ -390,21 +391,48 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     });
   };
 
+  // 길이레이블 생성 함수
+  const createLengthLabel = (wallId) => {
+    const wall = walls.find(w => w.id === wallId);
+    if (!wall) return;
+    const midX = (wall.x1 + wall.x2) / 2;
+    const midY = (wall.y1 + wall.y2) / 2;
+    const length = Math.round(Math.hypot(wall.x2 - wall.x1, wall.y2 - wall.y1));
+    const fontSize = viewbox.width * 0.025;
+    draw.find(`.length-label[data-id='${wall.id}']`).forEach(label => label.remove());
+    const label = draw.text(`${length}mm`)
+      .font({ size: fontSize, anchor: 'middle', fill: '#000' })
+      .center(midX, midY)
+      .addClass('length-label')
+      .attr('data-id', wall.id);
+    const isVertical = Math.abs(wall.y2 - wall.y1) > Math.abs(wall.x2 - wall.x1);
+    if (isVertical) {
+      label.rotate(90, midX, midY);
+    }
+    label.front();
+  };
+
+  // 길이레이블 렌더링 함수
+  const renderLengthLabels = () => {
+    draw.find('.length-label').forEach(len => len.remove());
+    wallLayer.children().forEach(wall => {
+      const wallId = wall.attr('data-id');
+      if (wallId) {
+        createLengthLabel(wallId);
+      }
+    });
+  };
+
   // 이동용 스냅 함수
   const getSnapPointForMove = (currentPoint, walls, excludeId) => {
     currentPoint = roundPoint(currentPoint);
     const SNAP_THRESHOLD = toolState.snapDistance;
-  
     let closestPoint = null;
     let minDistance = SNAP_THRESHOLD;
-  
     for (const wall of walls) {
-      if (wall.id === excludeId) continue; // 이동 중인 벽은 제외
-  
+      if (wall.id === excludeId) continue;
       const start = { x: wall.x1, y: wall.y1 };
       const end = { x: wall.x2, y: wall.y2 };
-  
-      // 끝점 스냅 확인
       [start, end].forEach(point => {
         const distance = Math.hypot(point.x - currentPoint.x, point.y - currentPoint.y);
         if (distance < minDistance) {
@@ -413,19 +441,16 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
         }
       });
     }
-  
     return closestPoint ? roundPoint(closestPoint) : currentPoint;
   };
 
-  /// 스냅 대상 찾기
+  // 벽 생성용 스냅
   const getSnapPoint = (currentPoint, walls) => {
     currentPoint = roundPoint(currentPoint);
     const SNAP_THRESHOLD = toolState.snapDistance;
-
     for (const wall of walls) {
       const start = { x: +wall.attr('x1'), y: +wall.attr('y1') };
       const end = { x: +wall.attr('x2'), y: +wall.attr('y2') };
-
       if (Math.hypot(start.x - currentPoint.x, start.y - currentPoint.y) < SNAP_THRESHOLD) {
         return roundPoint(start);
       }
@@ -433,23 +458,18 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
         return roundPoint(end);
       }
     }
-
     let closestPoint = null;
     let minDistance = SNAP_THRESHOLD;
-
     for (const wall of walls) {
       const start = { x: +wall.attr('x1'), y: +wall.attr('y1') };
       const end = { x: +wall.attr('x2'), y: +wall.attr('y2') };
-
       const projectedPoint = getClosestPointOnLine(start, end, currentPoint);
       const projectedDistance = Math.hypot(projectedPoint.x - currentPoint.x, projectedPoint.y - currentPoint.y);
-
       if (projectedDistance < minDistance) {
         minDistance = projectedDistance;
         closestPoint = projectedPoint;
       }
     }
-
     return closestPoint ? roundPoint(closestPoint) : currentPoint;
   };
 
@@ -457,10 +477,8 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
   const getClosestPointOnLine = (start, end, point) => {
     const lengthSquared = Math.pow(end.x - start.x, 2) + Math.pow(end.y - start.y, 2);
     if (lengthSquared === 0) return start;
-
     let t = ((point.x - start.x) * (end.x - start.x) + (point.y - start.y) * (end.y - start.y)) / lengthSquared;
     t = Math.max(0, Math.min(1, t));
-
     return { x: start.x + t * (end.x - start.x), y: start.y + t * (end.y - start.y) };
   };
 
@@ -479,18 +497,14 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
   // 벽 선택 함수
   const selectWall = (coords) => {
     if (!coords) return;
-  
     const walls = wallLayer.children();
     let closestWallId = null;
     let minDistance = toolState.snapDistance;
-  
     walls.forEach(wall => {
       const start = { x: +wall.attr('x1'), y: +wall.attr('y1') };
       const end = { x: +wall.attr('x2'), y: +wall.attr('y2') };
-  
       const projectedPoint = getClosestPointOnLine(start, end, coords);
       const distance = Math.hypot(projectedPoint.x - coords.x, projectedPoint.y - coords.y);
-  
       if (distance < minDistance) {
         minDistance = distance;
         closestWallId = wall.data('id');
@@ -597,23 +611,18 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     const x2 = line1.x2, y2 = line1.y2;
     const x3 = line2.x1, y3 = line2.y1;
     const x4 = line2.x2, y4 = line2.y2;
-    
     const denominator = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
     if (Math.abs(denominator) < 0.001) return null; // 평행선 처리
-
     const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denominator;
     const u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denominator;
-
-    // 교차점이 선분 위에 있는지 더 정확한 체크
     if (t < -0.001 || t > 1.001 || u < -0.001 || u > 1.001) return null;
-
     return {
       x: x1 + t * (x2 - x1),
       y: y1 + t * (y2 - y1)
     };
   };
 
-  // splitWallAtPoint 함수에 길이 체크 추가
+  // 벽 분할 함수
   const splitWallAtPoint = (wall, point) => {
     const part1 = {
       id: uuidv4(),
@@ -623,7 +632,6 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       y2: point.y,
       thickness: wall.thickness
     };
-    
     const part2 = {
       id: uuidv4(),
       x1: point.x,
@@ -632,8 +640,6 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       y2: wall.y2,
       thickness: wall.thickness
     };
-
-    // 최소 길이(1) 이상인 부분만 반환
     return [part1, part2].filter(part => 
       Math.hypot(part.x2 - part.x1, part.y2 - part.y1) > 1
     );
@@ -652,7 +658,6 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
         thickness: thickness,
       };
     },
-
     // 벽 렌더링
     renderWall: (wall) => {
       const element = wallLayer.line(wall.x1, wall.y1, wall.x2, wall.y2)
@@ -660,7 +665,6 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
         .data('id', wall.id);
       return element;
     },
-
     // 교차점을 포함한 벽 생성
     createWallWithIntersections: (start, end, thickness) => {
       // 1. 새 벽 생성
@@ -761,7 +765,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
         newWalls: uniqueWalls
       };
     },
-    // 벽 변경 적용 - 개선된 버전
+    // 벽 변경 적용
     applyWallChanges: (changes) => {
       saveState();
       // 기존 벽 제거
@@ -831,6 +835,8 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
 
     // 교차점에서 모서리 처리
     cornerMap.forEach((walls, key) => {
+      console.log('디버그1');
+      console.log(walls.length);
       if (walls.length === 2) {
         const [wallA, wallB] = walls;
         const [x, y] = key.split(',').map(Number);
