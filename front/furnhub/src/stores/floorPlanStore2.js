@@ -32,7 +32,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     return walls.find(wall => wall.id === selection.selectedWallId) || null;
   });
 
-  const viewbox = reactive({ x: -3000, y: -3000, width: 6000, height: 6000 });
+  const viewbox = reactive({ x: -2000, y: -2000, width: 4000, height: 4000 });
   
   // 팬 컨트롤
   const panControls = {
@@ -290,250 +290,6 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     }
   };
 
-
-  /////////////////////////////////////////////////////
-  // 치수 표시 관련 함수들
-  const dimensionControls = {
-    dimensionLayer: null,
-    OFFSET: 100,
-  
-    initialize: () => {
-      dimensionControls.dimensionLayer = draw.group().addClass("dimension-layer");
-    },
-  
-    clear: () => {
-      draw.find('.dimension').forEach(dim => dim.remove());
-    },
-  
-    // V자 화살표 그리기
-    drawArrow: (x, y, angle, isStart) => {
-      const arrowSize = 50;
-      const arrowAngle = Math.PI * 0.5;
-      const direction = isStart ? 1 : -1;
-      
-      const p1 = {
-        x: x + direction * arrowSize * Math.cos(angle + arrowAngle),
-        y: y + direction * arrowSize * Math.sin(angle + arrowAngle)
-      };
-      const p2 = { x, y };
-      const p3 = {
-        x: x + direction * arrowSize * Math.cos(angle - arrowAngle),
-        y: y + direction * arrowSize * Math.sin(angle - arrowAngle)
-      };
-      
-      return dimensionControls.dimensionLayer
-        .polyline([[p1.x, p1.y], [p2.x, p2.y], [p3.x, p3.y]])
-        .fill('none')
-        .stroke({ width: 5, color: '#000' })
-        .addClass('dimension');
-    },
-  
-    // 벽체의 실제 외곽점 구하기
-    getWallOuterPoints: (wall) => {
-      const halfThickness = wall.thickness / 2;
-      const angle = Math.atan2(wall.y2 - wall.y1, wall.x2 - wall.x1);
-      const perpAngle = angle + Math.PI / 2;
-  
-      return {
-        outer1: {
-          x: wall.x1 - halfThickness * Math.cos(perpAngle),
-          y: wall.y1 - halfThickness * Math.sin(perpAngle)
-        },
-        outer2: {
-          x: wall.x2 - halfThickness * Math.cos(perpAngle),
-          y: wall.y2 - halfThickness * Math.sin(perpAngle)
-        },
-        inner1: {
-          x: wall.x1 + halfThickness * Math.cos(perpAngle),
-          y: wall.y1 + halfThickness * Math.sin(perpAngle)
-        },
-        inner2: {
-          x: wall.x2 + halfThickness * Math.cos(perpAngle),
-          y: wall.y2 + halfThickness * Math.sin(perpAngle)
-        }
-      };
-    },
-  
-    // 연결된 벽체 찾기
-    findConnectedWalls: (walls) => {
-      const groups = [];
-      const used = new Set();
-  
-      const addToGroup = (wall, group) => {
-        if (used.has(wall.id)) return;
-        used.add(wall.id);
-        group.walls.push(wall);
-  
-        // 벽체의 끝점들
-        const points = [
-          { x: wall.x1, y: wall.y1 },
-          { x: wall.x2, y: wall.y2 }
-        ];
-  
-        // 연결된 다른 벽체 찾기
-        points.forEach(point => {
-          walls.forEach(other => {
-            if (!used.has(other.id)) {
-              if (Math.hypot(other.x1 - point.x, other.y1 - point.y) < 1 ||
-                  Math.hypot(other.x2 - point.x, other.y2 - point.y) < 1) {
-                addToGroup(other, group);
-              }
-            }
-          });
-        });
-      };
-  
-      walls.forEach(wall => {
-        if (!used.has(wall.id)) {
-          const group = { walls: [] };
-          addToGroup(wall, group);
-          groups.push(group);
-        }
-      });
-  
-      return groups;
-    },
-  
-    // 치수선 그리기
-    drawDimensionLine: (p1, p2, length, isVertical = false) => {
-      const line = dimensionControls.dimensionLayer
-        .line(p1.x, p1.y, p2.x, p2.y)
-        .stroke({ width: 1, color: '#000' })
-        .addClass('dimension');
-  
-      const angle = Math.atan2(p2.y - p1.y, p2.x - p1.x);
-      
-      dimensionControls.drawArrow(p1.x, p1.y, angle, true);
-      dimensionControls.drawArrow(p2.x, p2.y, angle, false);
-  
-      // 텍스트 위치
-      const textPoint = {
-        x: (p1.x + p2.x) / 2,
-        y: (p1.y + p2.y) / 2
-      };
-  
-      // 치수 텍스트
-      dimensionControls.dimensionLayer
-        .text(`${Math.round(length)}mm`)
-        .font({
-          family: 'Arial',
-          size: 80,
-          anchor: 'middle',
-          fill: '#000'
-        })
-        .addClass('dimension')
-        .center(textPoint.x, textPoint.y)
-        .rotate(isVertical ? 90 : 0);
-    },
-  
-    // 벽체 그룹의 치수 계산
-    calculateGroupDimensions: (group) => {
-      let minX = Infinity, maxX = -Infinity;
-      let minY = Infinity, maxY = -Infinity;
-      let innerMinX = Infinity, innerMaxX = -Infinity;
-      let innerMinY = Infinity, innerMaxY = -Infinity;
-  
-      group.walls.forEach(wall => {
-        const points = dimensionControls.getWallOuterPoints(wall);
-        
-        // 외측 경계
-        [points.outer1, points.outer2].forEach(p => {
-          minX = Math.min(minX, p.x);
-          maxX = Math.max(maxX, p.x);
-          minY = Math.min(minY, p.y);
-          maxY = Math.max(maxY, p.y);
-        });
-  
-        // 내측 경계
-        [points.inner1, points.inner2].forEach(p => {
-          innerMinX = Math.min(innerMinX, p.x);
-          innerMaxX = Math.max(innerMaxX, p.x);
-          innerMinY = Math.min(innerMinY, p.y);
-          innerMaxY = Math.max(innerMaxY, p.y);
-        });
-      });
-  
-      return {
-        outer: {
-          x: { min: minX, max: maxX },
-          y: { min: minY, max: maxY }
-        },
-        inner: {
-          x: { min: innerMinX, max: innerMaxX },
-          y: { min: innerMinY, max: innerMaxY }
-        }
-      };
-    },
-  
-    render: () => {
-      dimensionControls.clear();
-      const groups = dimensionControls.findConnectedWalls(walls);
-  
-      groups.forEach(group => {
-        const dims = dimensionControls.calculateGroupDimensions(group);
-        const offset = dimensionControls.OFFSET;
-  
-        // 외측 치수선
-        // 가로
-        if (dims.outer.x.max > dims.outer.x.min) {
-          // 상단
-          dimensionControls.drawDimensionLine(
-            { x: dims.outer.x.min, y: dims.outer.y.min - offset },
-            { x: dims.outer.x.max, y: dims.outer.y.min - offset },
-            dims.outer.x.max - dims.outer.x.min
-          );
-  
-          // 하단
-          dimensionControls.drawDimensionLine(
-            { x: dims.outer.x.min, y: dims.outer.y.max + offset },
-            { x: dims.outer.x.max, y: dims.outer.y.max + offset },
-            dims.outer.x.max - dims.outer.x.min
-          );
-        }
-  
-        // 세로
-        if (dims.outer.y.max > dims.outer.y.min) {
-          // 좌측
-          dimensionControls.drawDimensionLine(
-            { x: dims.outer.x.min - offset, y: dims.outer.y.min },
-            { x: dims.outer.x.min - offset, y: dims.outer.y.max },
-            dims.outer.y.max - dims.outer.y.min,
-            true
-          );
-  
-          // 우측
-          dimensionControls.drawDimensionLine(
-            { x: dims.outer.x.max + offset, y: dims.outer.y.min },
-            { x: dims.outer.x.max + offset, y: dims.outer.y.max },
-            dims.outer.y.max - dims.outer.y.min,
-            true
-          );
-        }
-  
-        // 내측 치수선
-        if (dims.inner.x.max > dims.inner.x.min) {
-          // 가로
-          dimensionControls.drawDimensionLine(
-            { x: dims.inner.x.min, y: (dims.inner.y.min + dims.inner.y.max) / 2 },
-            { x: dims.inner.x.max, y: (dims.inner.y.min + dims.inner.y.max) / 2 },
-            dims.inner.x.max - dims.inner.x.min
-          );
-        }
-  
-        if (dims.inner.y.max > dims.inner.y.min) {
-          // 세로
-          dimensionControls.drawDimensionLine(
-            { x: (dims.inner.x.min + dims.inner.x.max) / 2, y: dims.inner.y.min },
-            { x: (dims.inner.x.min + dims.inner.x.max) / 2, y: dims.inner.y.max },
-            dims.inner.y.max - dims.inner.y.min,
-            true
-          );
-        }
-      });
-    }
-  };
-  /////////////////////////////////////////////////////
-
   // walls 상태 변경을 추적하기 위한 history 스택 추가
   const history = reactive({
     undoStack: [],  // 실행 취소용 스택
@@ -598,7 +354,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
   const updateVisualElements = () => {
     fillCornerSpaces();
     renderKeyPoints();
-    dimensionControls.render();
+    renderLengthLabels();
   };
 
   // 직각 보정 함수
@@ -626,7 +382,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       .addClass("key")
   };
 
-  // 키 렌더링
+  // 키 렌더링 함수
   const renderKeyPoints = () => {
     draw.find('.key').forEach(key => key.remove());
     wallLayer.children().forEach(wall => {
@@ -635,21 +391,177 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     });
   };
 
+  // 화살표 생성 함수
+  const drawArrow = (x, y, angle, isStart) => {
+    const arrowSize = viewbox.width * 0.0125;
+    const arrowAngle = Math.PI * 0.4;
+    const direction = isStart ? 1 : -1;
+    
+    const p1 = {
+      x: x + direction * arrowSize * Math.cos(angle + arrowAngle),
+      y: y + direction * arrowSize * Math.sin(angle + arrowAngle)
+    };
+    const p2 = { x, y };
+    const p3 = {
+      x: x + direction * arrowSize * Math.cos(angle - arrowAngle),
+      y: y + direction * arrowSize * Math.sin(angle - arrowAngle)
+    };
+    
+    return draw.polyline([[p1.x, p1.y], [p2.x, p2.y], [p3.x, p3.y]])
+      .fill('none')
+      .stroke({ width: viewbox.width * 0.00125, color: '#000' })
+      .addClass('dimension');
+  };
+
+  // 연결선 생성 함수
+  const drawDimensionLine = (start, end) => {
+    return draw.line(start.x, start.y, end.x, end.y)
+      .stroke({ width: viewbox.width * 0.00125, color: '#000' })
+      .addClass('dimension');
+  };
+
+  // 길이레이블 생성 함수
+  const createLengthLabel = (wallId) => {
+    const wall = walls.find(w => w.id === wallId);
+    if (!wall) return;
+    
+    const isVertical = Math.abs(wall.y2 - wall.y1) > Math.abs(wall.x2 - wall.x1);
+    const offset = wall.thickness / 2 + viewbox.width * 0.0125;
+    const lineOffset = viewbox.width * 0.0075;
+    
+    // 기존 요소들 제거
+    draw.find(`.length-label[data-id='${wall.id}']`).forEach(label => label.remove());
+    draw.find(`.dimension[data-id='${wall.id}']`).forEach(dim => dim.remove());
+    
+    const midX = (wall.x1 + wall.x2) / 2;
+    const midY = (wall.y1 + wall.y2) / 2;
+    const length = Math.round(Math.hypot(wall.x2 - wall.x1, wall.y2 - wall.y1));
+    const fontSize = viewbox.width * 0.025;
+    const maxOffset = length / 2;
+    const dimensionLineOffset = Math.min(
+      maxOffset, 
+      fontSize * (0.5 + Math.log10(length) / 2)
+    ) * (isVertical ? (wall.y2 < wall.y1 ? 1 : -1) : (wall.x2 > wall.x1 ? 1 : -1));
+
+    // 벽의 방향 결정
+    const angle = isVertical 
+      ? (wall.y2 > wall.y1 ? Math.PI * 0.5 : -Math.PI * 0.5)
+      : (wall.x2 > wall.x1 ? 0 : Math.PI);
+
+    if (isVertical) {
+      // 세로 벽 (좌/우 분리)
+      const leftLabelGroup = draw.group().addClass('length-label').attr('data-id', `${wall.id}-left`);
+      const rightLabelGroup = draw.group().addClass('length-label').attr('data-id', `${wall.id}-right`);
+      
+      // 왼쪽 텍스트와 연결선
+      const leftLabel = leftLabelGroup.text(`${length}mm`)
+        .font({ size: fontSize, anchor: 'middle' })
+        .center(midX - offset, midY)
+        .rotate(90, midX - offset, midY);
+      
+      // 오른쪽 텍스트와 연결선
+      const rightLabel = rightLabelGroup.text(`${length}mm`)
+        .font({ size: fontSize, anchor: 'middle' })
+        .center(midX + offset, midY)
+        .rotate(90, midX + offset, midY);
+
+      const isUpward = wall.y2 < wall.y1;
+      const arrowAngle = Math.PI * 0.5;
+
+      // 왼쪽 연결선
+      drawDimensionLine(
+        { x: midX - offset, y: wall.y1 },
+        { x: midX - offset, y: midY + dimensionLineOffset }
+      );
+      drawDimensionLine(
+        { x: midX - offset, y: midY - dimensionLineOffset },
+        { x: midX - offset, y: wall.y2 }
+      );
+      
+      // 오른쪽 연결선
+      drawDimensionLine(
+        { x: midX + offset, y: wall.y1 },
+        { x: midX + offset, y: midY + dimensionLineOffset }
+      );
+      drawDimensionLine(
+        { x: midX + offset, y: midY - dimensionLineOffset },
+        { x: midX + offset, y: wall.y2 }
+      );
+      
+      // 화살표 추가
+      drawArrow(midX - offset, wall.y1, arrowAngle, !isUpward);
+      drawArrow(midX - offset, wall.y2, arrowAngle, isUpward);
+      drawArrow(midX + offset, wall.y1, arrowAngle, !isUpward);
+      drawArrow(midX + offset, wall.y2, arrowAngle, isUpward);
+      
+    } else {
+      // 가로 벽 (상단/하단 분리)
+      const topLabelGroup = draw.group().addClass('length-label').attr('data-id', `${wall.id}-top`);
+      const bottomLabelGroup = draw.group().addClass('length-label').attr('data-id', `${wall.id}-bottom`);
+      
+      // 상단 텍스트와 연결선
+      const topLabel = topLabelGroup.text(`${length}mm`)
+        .font({ size: fontSize, anchor: 'middle' })
+        .center(midX, midY - offset);
+      
+      // 하단 텍스트와 연결선
+      const bottomLabel = bottomLabelGroup.text(`${length}mm`)
+        .font({ size: fontSize, anchor: 'middle' })
+        .center(midX, midY + offset);
+        
+      const isRightward = wall.x2 > wall.x1;
+      const arrowAngle = 0;
+
+      // 상단 연결선
+      drawDimensionLine(
+        { x: wall.x1, y: midY - offset },
+        { x: midX - dimensionLineOffset, y: midY - offset }
+      );
+      drawDimensionLine(
+        { x: midX + dimensionLineOffset, y: midY - offset },
+        { x: wall.x2, y: midY - offset }
+      );
+      
+      // 하단 연결선
+      drawDimensionLine(
+        { x: wall.x1, y: midY + offset },
+        { x: midX - dimensionLineOffset, y: midY + offset }
+      );
+      drawDimensionLine(
+        { x: midX + dimensionLineOffset, y: midY + offset },
+        { x: wall.x2, y: midY + offset }
+      );
+
+      // 화살표 추가
+      drawArrow(wall.x1, midY - offset, arrowAngle, isRightward);
+      drawArrow(wall.x2, midY - offset, arrowAngle, !isRightward);
+      drawArrow(wall.x1, midY + offset, arrowAngle, isRightward);
+      drawArrow(wall.x2, midY + offset, arrowAngle, !isRightward);
+    }
+  };
+
+  // 길이레이블 렌더링 함수
+  const renderLengthLabels = () => {
+    draw.find('.length-label').forEach(len => len.remove());
+    draw.find('.dimension').forEach(dim => dim.remove());
+    wallLayer.children().forEach(wall => {
+      const wallId = wall.attr('data-id');
+      if (wallId) {
+        createLengthLabel(wallId);
+      }
+    });
+  };
+
   // 이동용 스냅 함수
   const getSnapPointForMove = (currentPoint, walls, excludeId) => {
     currentPoint = roundPoint(currentPoint);
     const SNAP_THRESHOLD = toolState.snapDistance;
-  
     let closestPoint = null;
     let minDistance = SNAP_THRESHOLD;
-  
     for (const wall of walls) {
-      if (wall.id === excludeId) continue; // 이동 중인 벽은 제외
-  
+      if (wall.id === excludeId) continue;
       const start = { x: wall.x1, y: wall.y1 };
       const end = { x: wall.x2, y: wall.y2 };
-  
-      // 끝점 스냅 확인
       [start, end].forEach(point => {
         const distance = Math.hypot(point.x - currentPoint.x, point.y - currentPoint.y);
         if (distance < minDistance) {
@@ -658,19 +570,16 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
         }
       });
     }
-  
     return closestPoint ? roundPoint(closestPoint) : currentPoint;
   };
 
-  /// 스냅 대상 찾기
+  // 벽 생성용 스냅
   const getSnapPoint = (currentPoint, walls) => {
     currentPoint = roundPoint(currentPoint);
     const SNAP_THRESHOLD = toolState.snapDistance;
-
     for (const wall of walls) {
       const start = { x: +wall.attr('x1'), y: +wall.attr('y1') };
       const end = { x: +wall.attr('x2'), y: +wall.attr('y2') };
-
       if (Math.hypot(start.x - currentPoint.x, start.y - currentPoint.y) < SNAP_THRESHOLD) {
         return roundPoint(start);
       }
@@ -678,23 +587,18 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
         return roundPoint(end);
       }
     }
-
     let closestPoint = null;
     let minDistance = SNAP_THRESHOLD;
-
     for (const wall of walls) {
       const start = { x: +wall.attr('x1'), y: +wall.attr('y1') };
       const end = { x: +wall.attr('x2'), y: +wall.attr('y2') };
-
       const projectedPoint = getClosestPointOnLine(start, end, currentPoint);
       const projectedDistance = Math.hypot(projectedPoint.x - currentPoint.x, projectedPoint.y - currentPoint.y);
-
       if (projectedDistance < minDistance) {
         minDistance = projectedDistance;
         closestPoint = projectedPoint;
       }
     }
-
     return closestPoint ? roundPoint(closestPoint) : currentPoint;
   };
 
@@ -702,10 +606,8 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
   const getClosestPointOnLine = (start, end, point) => {
     const lengthSquared = Math.pow(end.x - start.x, 2) + Math.pow(end.y - start.y, 2);
     if (lengthSquared === 0) return start;
-
     let t = ((point.x - start.x) * (end.x - start.x) + (point.y - start.y) * (end.y - start.y)) / lengthSquared;
     t = Math.max(0, Math.min(1, t));
-
     return { x: start.x + t * (end.x - start.x), y: start.y + t * (end.y - start.y) };
   };
 
@@ -724,18 +626,14 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
   // 벽 선택 함수
   const selectWall = (coords) => {
     if (!coords) return;
-  
     const walls = wallLayer.children();
     let closestWallId = null;
     let minDistance = toolState.snapDistance;
-  
     walls.forEach(wall => {
       const start = { x: +wall.attr('x1'), y: +wall.attr('y1') };
       const end = { x: +wall.attr('x2'), y: +wall.attr('y2') };
-  
       const projectedPoint = getClosestPointOnLine(start, end, coords);
       const distance = Math.hypot(projectedPoint.x - coords.x, projectedPoint.y - coords.y);
-  
       if (distance < minDistance) {
         minDistance = distance;
         closestWallId = wall.data('id');
@@ -842,23 +740,18 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     const x2 = line1.x2, y2 = line1.y2;
     const x3 = line2.x1, y3 = line2.y1;
     const x4 = line2.x2, y4 = line2.y2;
-    
     const denominator = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
     if (Math.abs(denominator) < 0.001) return null; // 평행선 처리
-
     const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denominator;
     const u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denominator;
-
-    // 교차점이 선분 위에 있는지 더 정확한 체크
     if (t < -0.001 || t > 1.001 || u < -0.001 || u > 1.001) return null;
-
     return {
       x: x1 + t * (x2 - x1),
       y: y1 + t * (y2 - y1)
     };
   };
 
-  // splitWallAtPoint 함수에 길이 체크 추가
+  // 벽 분할 함수
   const splitWallAtPoint = (wall, point) => {
     const part1 = {
       id: uuidv4(),
@@ -868,7 +761,6 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       y2: point.y,
       thickness: wall.thickness
     };
-    
     const part2 = {
       id: uuidv4(),
       x1: point.x,
@@ -877,8 +769,6 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       y2: wall.y2,
       thickness: wall.thickness
     };
-
-    // 최소 길이(1) 이상인 부분만 반환
     return [part1, part2].filter(part => 
       Math.hypot(part.x2 - part.x1, part.y2 - part.y1) > 1
     );
@@ -897,7 +787,6 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
         thickness: thickness,
       };
     },
-
     // 벽 렌더링
     renderWall: (wall) => {
       const element = wallLayer.line(wall.x1, wall.y1, wall.x2, wall.y2)
@@ -905,7 +794,6 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
         .data('id', wall.id);
       return element;
     },
-
     // 교차점을 포함한 벽 생성
     createWallWithIntersections: (start, end, thickness) => {
       // 1. 새 벽 생성
@@ -1006,7 +894,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
         newWalls: uniqueWalls
       };
     },
-    // 벽 변경 적용 - 개선된 버전
+    // 벽 변경 적용
     applyWallChanges: (changes) => {
       saveState();
       // 기존 벽 제거
@@ -1066,7 +954,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       ];
       
       points.forEach(([x, y]) => {
-        const key = `${x},${y}`;
+        const key = `${Math.round(x)},${Math.round(y)}`;
         if (!cornerMap.has(key)) {
           cornerMap.set(key, []);
         }
@@ -1092,7 +980,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
           const height = isWallAVertical ? thicknessB : thicknessA;
           
           draw.rect(width, height)
-            .move(x - width/2, y - height/2)
+            .center(x, y)
             .fill("#999")
             .addClass('corner-space');
         }
@@ -1135,7 +1023,6 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     addGrid();
     draw.viewbox(viewbox.x, viewbox.y, viewbox.width, viewbox.height);
     wallLayer = draw.group().addClass("wall-layer");
-    dimensionControls.initialize();
   };
     
   // 마우스 좌표 -> SVG좌표 함수

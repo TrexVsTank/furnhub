@@ -391,30 +391,159 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     });
   };
 
+  // 화살표 생성 함수
+  const drawArrow = (x, y, angle, isStart) => {
+    const arrowSize = viewbox.width * 0.0125;
+    const arrowAngle = Math.PI * 0.4;
+    const direction = isStart ? 1 : -1;
+    
+    const p1 = {
+      x: x + direction * arrowSize * Math.cos(angle + arrowAngle),
+      y: y + direction * arrowSize * Math.sin(angle + arrowAngle)
+    };
+    const p2 = { x, y };
+    const p3 = {
+      x: x + direction * arrowSize * Math.cos(angle - arrowAngle),
+      y: y + direction * arrowSize * Math.sin(angle - arrowAngle)
+    };
+    
+    return draw.polyline([[p1.x, p1.y], [p2.x, p2.y], [p3.x, p3.y]])
+      .fill('none')
+      .stroke({ width: viewbox.width * 0.00125, color: '#000' })
+      .addClass('dimension');
+  };
+
+  // 연결선 생성 함수
+  const drawDimensionLine = (start, end) => {
+    return draw.line(start.x, start.y, end.x, end.y)
+      .stroke({ width: viewbox.width * 0.00125, color: '#000' })
+      .addClass('dimension');
+  };
+
   // 길이레이블 생성 함수
   const createLengthLabel = (wallId) => {
     const wall = walls.find(w => w.id === wallId);
     if (!wall) return;
+    
+    const isVertical = Math.abs(wall.y2 - wall.y1) > Math.abs(wall.x2 - wall.x1);
+    const offset = wall.thickness / 2 + viewbox.width * 0.0125;
+    const lineOffset = viewbox.width * 0.0075;
+    
+    // 기존 요소들 제거
+    draw.find(`.length-label[data-id='${wall.id}']`).forEach(label => label.remove());
+    draw.find(`.dimension[data-id='${wall.id}']`).forEach(dim => dim.remove());
+    
     const midX = (wall.x1 + wall.x2) / 2;
     const midY = (wall.y1 + wall.y2) / 2;
     const length = Math.round(Math.hypot(wall.x2 - wall.x1, wall.y2 - wall.y1));
     const fontSize = viewbox.width * 0.025;
-    draw.find(`.length-label[data-id='${wall.id}']`).forEach(label => label.remove());
-    const label = draw.text(`${length}mm`)
-      .font({ size: fontSize, anchor: 'middle', fill: '#000' })
-      .center(midX, midY)
-      .addClass('length-label')
-      .attr('data-id', wall.id);
-    const isVertical = Math.abs(wall.y2 - wall.y1) > Math.abs(wall.x2 - wall.x1);
+    const maxOffset = length / 2;
+    const dimensionLineOffset = Math.min(
+      maxOffset, 
+      fontSize * (0.5 + Math.log10(length) / 2)
+    ) * (isVertical ? (wall.y2 < wall.y1 ? 1 : -1) : (wall.x2 > wall.x1 ? 1 : -1));
+
+    // 벽의 방향 결정
+    const angle = isVertical 
+      ? (wall.y2 > wall.y1 ? Math.PI * 0.5 : -Math.PI * 0.5)
+      : (wall.x2 > wall.x1 ? 0 : Math.PI);
+
     if (isVertical) {
-      label.rotate(90, midX, midY);
+      // 세로 벽 (좌/우 분리)
+      const leftLabelGroup = draw.group().addClass('length-label').attr('data-id', `${wall.id}-left`);
+      const rightLabelGroup = draw.group().addClass('length-label').attr('data-id', `${wall.id}-right`);
+      
+      // 왼쪽 텍스트와 연결선
+      const leftLabel = leftLabelGroup.text(`${length}mm`)
+        .font({ size: fontSize, anchor: 'middle' })
+        .center(midX - offset, midY)
+        .rotate(90, midX - offset, midY);
+      
+      // 오른쪽 텍스트와 연결선
+      const rightLabel = rightLabelGroup.text(`${length}mm`)
+        .font({ size: fontSize, anchor: 'middle' })
+        .center(midX + offset, midY)
+        .rotate(90, midX + offset, midY);
+
+      const isUpward = wall.y2 < wall.y1;
+      const arrowAngle = Math.PI * 0.5;
+
+      // 왼쪽 연결선
+      drawDimensionLine(
+        { x: midX - offset, y: wall.y1 },
+        { x: midX - offset, y: midY + dimensionLineOffset }
+      );
+      drawDimensionLine(
+        { x: midX - offset, y: midY - dimensionLineOffset },
+        { x: midX - offset, y: wall.y2 }
+      );
+      
+      // 오른쪽 연결선
+      drawDimensionLine(
+        { x: midX + offset, y: wall.y1 },
+        { x: midX + offset, y: midY + dimensionLineOffset }
+      );
+      drawDimensionLine(
+        { x: midX + offset, y: midY - dimensionLineOffset },
+        { x: midX + offset, y: wall.y2 }
+      );
+      
+      // 화살표 추가
+      drawArrow(midX - offset, wall.y1, arrowAngle, !isUpward);
+      drawArrow(midX - offset, wall.y2, arrowAngle, isUpward);
+      drawArrow(midX + offset, wall.y1, arrowAngle, !isUpward);
+      drawArrow(midX + offset, wall.y2, arrowAngle, isUpward);
+      
+    } else {
+      // 가로 벽 (상단/하단 분리)
+      const topLabelGroup = draw.group().addClass('length-label').attr('data-id', `${wall.id}-top`);
+      const bottomLabelGroup = draw.group().addClass('length-label').attr('data-id', `${wall.id}-bottom`);
+      
+      // 상단 텍스트와 연결선
+      const topLabel = topLabelGroup.text(`${length}mm`)
+        .font({ size: fontSize, anchor: 'middle' })
+        .center(midX, midY - offset);
+      
+      // 하단 텍스트와 연결선
+      const bottomLabel = bottomLabelGroup.text(`${length}mm`)
+        .font({ size: fontSize, anchor: 'middle' })
+        .center(midX, midY + offset);
+        
+      const isRightward = wall.x2 > wall.x1;
+      const arrowAngle = 0;
+
+      // 상단 연결선
+      drawDimensionLine(
+        { x: wall.x1, y: midY - offset },
+        { x: midX - dimensionLineOffset, y: midY - offset }
+      );
+      drawDimensionLine(
+        { x: midX + dimensionLineOffset, y: midY - offset },
+        { x: wall.x2, y: midY - offset }
+      );
+      
+      // 하단 연결선
+      drawDimensionLine(
+        { x: wall.x1, y: midY + offset },
+        { x: midX - dimensionLineOffset, y: midY + offset }
+      );
+      drawDimensionLine(
+        { x: midX + dimensionLineOffset, y: midY + offset },
+        { x: wall.x2, y: midY + offset }
+      );
+
+      // 화살표 추가
+      drawArrow(wall.x1, midY - offset, arrowAngle, isRightward);
+      drawArrow(wall.x2, midY - offset, arrowAngle, !isRightward);
+      drawArrow(wall.x1, midY + offset, arrowAngle, isRightward);
+      drawArrow(wall.x2, midY + offset, arrowAngle, !isRightward);
     }
-    label.front();
   };
 
   // 길이레이블 렌더링 함수
   const renderLengthLabels = () => {
     draw.find('.length-label').forEach(len => len.remove());
+    draw.find('.dimension').forEach(dim => dim.remove());
     wallLayer.children().forEach(wall => {
       const wallId = wall.attr('data-id');
       if (wallId) {
@@ -835,8 +964,6 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
 
     // 교차점에서 모서리 처리
     cornerMap.forEach((walls, key) => {
-      console.log('디버그1');
-      console.log(walls.length);
       if (walls.length === 2) {
         const [wallA, wallB] = walls;
         const [x, y] = key.split(',').map(Number);
@@ -853,7 +980,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
           const height = isWallAVertical ? thicknessB : thicknessA;
           
           draw.rect(width, height)
-            .move(x - width/2, y - height/2)
+            .center(x, y)
             .fill("#999")
             .addClass('corner-space');
         }
