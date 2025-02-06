@@ -5,6 +5,7 @@ import path from "path"; // Node.js 경로 모듈 추가
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  base: "/furnhub/",
   plugins: [vue()],
   resolve: {
     alias: {
@@ -12,6 +13,9 @@ export default defineConfig({
     },
   },
   logLevel: "info",
+  build: {
+    outDir: "dist",
+  },
   server: {
     host: '0.0.0.0', // 외부 접속 허용
     port: 8081,      // 기본 포트 설정

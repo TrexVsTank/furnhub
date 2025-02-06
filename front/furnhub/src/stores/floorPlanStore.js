@@ -20,7 +20,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
   const toolState = reactive({
     currentTool: "select",
     wallThickness: 100,
-    snapDistance: 100,
+    snapDistance: 50,
   });
 
   let isMovingWall = false;
@@ -34,6 +34,9 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
 
   const viewbox = reactive({ x: -2000, y: -2000, width: 4000, height: 4000 });
   
+  const canUndo = computed(() => history.undoStack.length > 0);
+  const canRedo = computed(() => history.redoStack.length > 0);
+
   // 팬 컨트롤
   const panControls = {
     start: (event) => {
@@ -1274,6 +1277,11 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     setWallThickness,
     setSnapDistance,
     wallControls,
+    rectTool, 
+    canUndo,
+    canRedo,
+    undo,
+    redo,
 
     selection,
     selectWall,
@@ -1281,6 +1289,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     selectedWallThickness,
     updateSelectedWallLength,
     updateSelectedWallThickness,
+    deleteSelectedWall,
   };
     
 });

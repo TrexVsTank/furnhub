@@ -20,7 +20,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
   const toolState = reactive({
     currentTool: "select",
     wallThickness: 100,
-    snapDistance: 100,
+    snapDistance: 50,
   });
 
   let isMovingWall = false;
