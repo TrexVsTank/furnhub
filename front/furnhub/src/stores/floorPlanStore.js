@@ -14,6 +14,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
 
   let wallLayer = null;
   let wallStart = null, wallPreview = null;
+  let wallPreviewGroup = null;
 
   const walls = reactive([]);
 
@@ -83,7 +84,9 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
         x: snapToMillimeter(snappedStart.x),
         y: snapToMillimeter(snappedStart.y),
       };
-      wallPreview = draw.line(wallStart.x, wallStart.y, wallStart.x, wallStart.y)
+      wallPreviewGroup = draw.group();
+      wallPreview = wallPreviewGroup
+        .line(wallStart.x, wallStart.y, wallStart.x, wallStart.y)
         .stroke({ width: toolState.wallThickness, color: "#999", dasharray: "5,5" });
     },
     preview: (coords) => {
@@ -91,6 +94,25 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       const snappedEnd = getSnapPoint(coords, wallLayer.children());
       const end = getOrthogonalPoint(wallStart, snappedEnd);
       wallPreview?.plot(wallStart.x, wallStart.y, end.x, end.y);
+
+      // 기존 미리보기 길이 표시 제거
+      wallPreviewGroup.find('.preview-length').forEach(el => el.remove());
+      
+      // 길이 계산
+      const length = Math.round(Math.hypot(end.x - wallStart.x, end.y - wallStart.y));
+      
+      if (length > 1) {
+        const midX = (wallStart.x + end.x) / 2;
+        const midY = (wallStart.y + end.y) / 2;
+        const fontSize = viewbox.width * 0.025;
+        
+        // 길이 텍스트 표시
+        wallPreviewGroup
+          .text(`${length}mm`)
+          .font({ size: fontSize, anchor: 'middle' })
+          .center(midX, midY)
+          .addClass('preview-length');
+      }
     },
     onClick: (coords) => {
       if (!isInBoundary(coords)) return;
@@ -112,13 +134,16 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
           // 마지막 점을 새로운 시작점으로
           wallStart = { x: end.x, y: end.y };
           wallPreview?.plot(wallStart.x, wallStart.y, wallStart.x, wallStart.y);
+          wallPreviewGroup.find('.preview-length').forEach(el => el.remove());
           updateVisualElements();
         }
       }
     },
     cancel: () => {
+      wallPreviewGroup.find('.preview-length').forEach(el => el.remove());
       if (wallStart) {
         wallPreview?.remove();
+        wallPreviewGroup = null;
         wallPreview = null;
         wallStart = null;
       }
@@ -219,17 +244,17 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       const x = Math.min(rectTool.startPoint.x, currentPoint.x);
       const y = Math.min(rectTool.startPoint.y, currentPoint.y);
       
-      rectTool.preview.first()
-        .width(width)
-        .height(height)
+      // 기존 텍스트와 미리보기 제거
+      rectTool.preview.children().forEach(child => child.remove());
+      
+      // 사각형 미리보기
+      rectTool.preview
+        .rect(width, height)
+        .fill('none')
+        .stroke({ width: 1, color: '#999', dasharray: '5,5' })
         .x(x)
         .y(y);
-  
-      // 미리보기 벽 두께 표시
-      rectTool.preview.children().forEach(child => {
-        if (child !== rectTool.preview.first()) child.remove();
-      });
-  
+      
       // 네 개의 벽 미리보기
       [
         [x, y, x + width, y],
@@ -241,6 +266,26 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
           .line(x1, y1, x2, y2)
           .stroke({ width: toolState.wallThickness, color: '#999', opacity: 0.5 });
       });
+      
+      // 가로/세로 길이 표시
+      const fontSize = viewbox.width * 0.02;
+      
+      // 가로 길이
+      if (width > 1) {
+        rectTool.preview
+          .text(`${Math.round(width)}mm`)
+          .font({ size: fontSize, anchor: 'middle' })
+          .center(x + width/2, y - fontSize);
+      }
+      
+      // 세로 길이
+      if (height > 1) {
+        rectTool.preview
+          .text(`${Math.round(height)}mm`)
+          .font({ size: fontSize, anchor: 'middle' })
+          .center(x - fontSize * 2, y + height/2)
+          .rotate(-90);
+      }
     },
     
     // 사각형 생성
@@ -287,8 +332,10 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     
     // 취소
     cancel: () => {
-      rectTool.preview?.remove();
-      rectTool.preview = null;
+      if (rectTool.preview) {
+        rectTool.preview.remove();
+        rectTool.preview = null;
+      }
       rectTool.startPoint = null;
     }
   };
@@ -1174,8 +1221,11 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') return;
     switch (event.key) {
       case "Escape": // ESC
-        wallControls.cancel();
-        rectTool.cancel();
+        if (toolState.currentTool === "wall") {
+          wallControls.cancel();
+        } else if (toolState.currentTool === "rect") {
+          rectTool.cancel();
+        }
         break;
       case "Delete": // Delete
         if (selection.selectedWallId) {

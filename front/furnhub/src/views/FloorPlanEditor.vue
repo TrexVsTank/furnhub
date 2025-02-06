@@ -1,23 +1,13 @@
 <!-- src/views/FloorPlanEditor.vue -->
-
-<!-- 스크립트 -->
 <script setup>
-
-// vue
 import { ref, onMounted } from "vue";
-
-// SCSS
 import "@/styles/global.scss";
 import "@/styles/FloorPlanEditor.scss";
-
-// Pinia
 import { useFloorPlanStore } from "@/stores/floorPlanStore";
-const store = useFloorPlanStore();
 
-// canvas
+const store = useFloorPlanStore();
 const canvas = ref(null);
 
-// onMounted
 onMounted(() => {
   store.initializeCanvas(canvas.value);
   window.addEventListener('keydown', store.handleKeyDown);
