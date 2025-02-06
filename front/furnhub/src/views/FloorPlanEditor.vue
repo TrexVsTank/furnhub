@@ -27,6 +27,7 @@ onMounted(() => {
       <p>현재 툴 : {{ store.toolState.currentTool }}</p>
       <button @click="store.toolState.currentTool = 'select'">선택 툴 [1]</button>
       <button @click="store.toolState.currentTool = 'wall'">벽 툴 [2]</button>
+      <button @click="store.toolState.currentTool = 'rect'">사각형 툴 [3]</button>
       <div>
         <label>벽 두께 (mm)</label>
         <input 
@@ -41,7 +42,7 @@ onMounted(() => {
           <button @click="store.setWallThickness(store.toolState.wallThickness + 10)">+</button>
         </div>
       </div>
-      <div>
+      <!-- <div>
         <label>스냅 거리 (mm)</label>
         <input 
           type="number" 
@@ -54,14 +55,17 @@ onMounted(() => {
           <button @click="store.setSnapDistance(store.toolState.snapDistance - 10)">-</button>
           <button @click="store.setSnapDistance(store.toolState.snapDistance + 10)">+</button>
         </div>
-      </div>
-      <button @click="store.toolState.currentTool = 'rect'">사각형 툴 [3]</button>
-      <button @click="store.toolState.currentTool = 'cut'">영역 자르기 툴 (미구현) [4]</button>
+      </div> -->
       <div>
         <button @click="store.undo" :disabled="!store.canUndo">뒤로 [Ctrl + Z]</button>
       </div>
       <div>
         <button @click="store.redo" :disabled="!store.canRedo">앞으로 [Ctrl + Y]</button>
+      </div>
+      <div>
+        <button @click="store.toggleLengthLabels">
+          길이표시 {{ store.toolState.showLengthLabels ? '끄기' : '켜기' }} [L]
+        </button>
       </div>
     </aside>
 

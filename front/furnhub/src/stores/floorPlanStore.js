@@ -21,7 +21,8 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
   const toolState = reactive({
     currentTool: "select",
     wallThickness: 100,
-    snapDistance: 50,
+    snapDistance: 100,
+    showLengthLabels: true,
   });
 
   let isMovingWall = false;
@@ -398,6 +399,12 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     history.isRecording = true;
   };
 
+  // 레이블 토글
+  const toggleLengthLabels = () => {
+    toolState.showLengthLabels = !toolState.showLengthLabels;
+    updateVisualElements();
+  };
+
   // == 유틸리티 함수들 == //
 
   // 화면갱신
@@ -588,7 +595,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     const midX = (wall.x1 + wall.x2) / 2;
     const midY = (wall.y1 + wall.y2) / 2;
     const length = Math.round(Math.hypot(wall.x2 - wall.x1, wall.y2 - wall.y1));
-    const fontSize = viewbox.width * 0.025;
+    const fontSize = Math.min(100, viewbox.width / 64);
     const maxOffset = length / 2;
     const dimensionLineOffset = Math.min(
       maxOffset, 
@@ -727,12 +734,14 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
   const renderLengthLabels = () => {
     draw.find('.length-label').forEach(len => len.remove());
     draw.find('.dimension').forEach(dim => dim.remove());
-    wallLayer.children().forEach(wall => {
-      const wallId = wall.attr('data-id');
-      if (wallId) {
-        createLengthLabel(wallId);
-      }
-    });
+    if (toolState.showLengthLabels) {
+      wallLayer.children().forEach(wall => {
+        const wallId = wall.attr('data-id');
+        if (wallId) {
+          createLengthLabel(wallId);
+        }
+      });
+    }
   };
 
   // 이동용 스냅 함수
@@ -1235,7 +1244,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       case "1": toolState.currentTool = "select"; break; // 1 : 선택
       case "2": toolState.currentTool = "wall"; break; // 2 : 벽
       case "3": toolState.currentTool = "rect"; break; // 3 : 사각형
-      case "4": toolState.currentTool = "cut"; break; // 4 : 자르기
+      case "l": case "L": toggleLengthLabels(); break; // l : 레이블 토글
       default:
         if (event.ctrlKey) { // Ctrl
           switch (event.key) {
@@ -1332,6 +1341,7 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
     canRedo,
     undo,
     redo,
+    toggleLengthLabels,
 
     selection,
     selectWall,
