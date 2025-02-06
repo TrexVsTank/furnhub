@@ -1,6 +1,6 @@
 // store/floorPlanStore.js
 import { defineStore } from "pinia";
-import { SVG } from "@svgdotjs/svg.js";
+import { off, SVG } from "@svgdotjs/svg.js";
 import { reactive, computed, watch } from "vue";
 import { v4 as uuidv4 } from "uuid";
 
@@ -420,14 +420,116 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       .addClass('dimension');
   };
 
-  // 길이레이블 생성 함수
+  // 직교벽 찾는 함수
+  const findIntersectingWalls = (point, wallId, isCurrentWallVertical) => {
+    return walls
+      .filter(w =>
+        w.id !== wallId &&
+        ((w.x1 === point.x && w.y1 === point.y) || (w.x2 === point.x && w.y2 === point.y))
+      )
+      .map(w => {
+        const isMeetingAtStart = w.x1 === point.x && w.y1 === point.y;
+        const isVertical = Math.abs(w.y2 - w.y1) > Math.abs(w.x2 - w.x1);
+
+        if (isCurrentWallVertical) {
+          return {
+            ...w,
+            isVertical: isVertical,
+            isLeftward: !isVertical ? (isMeetingAtStart ? w.x1 > w.x2 : w.x2 > w.x1) : false,
+            isRightward: !isVertical ? (isMeetingAtStart ? w.x1 < w.x2 : w.x2 < w.x1) : false
+          };
+        } else {
+          return {
+            ...w,
+            isVertical: isVertical,
+            isLower: isVertical ? (isMeetingAtStart ? w.y1 < w.y2 : w.y2 < w.y1) : false,
+            isUpper: isVertical ? (isMeetingAtStart ? w.y1 > w.y2 : w.y2 > w.y1) : false
+          };
+        }
+      });
+  };
+
   const createLengthLabel = (wallId) => {
     const wall = walls.find(w => w.id === wallId);
     if (!wall) return;
     
     const isVertical = Math.abs(wall.y2 - wall.y1) > Math.abs(wall.x2 - wall.x1);
+    const isUpward = wall.y1 > wall.y2;
+    const isRightward = wall.x1 < wall.x2;
     const offset = wall.thickness / 2 + viewbox.width * 0.0125;
-    const lineOffset = viewbox.width * 0.0075;
+
+    // 직교 보정용 오프셋
+    let upperLeftOffset = 0, upperRightOffset = 0, lowerLeftOffset = 0, lowerRightOffset = 0;
+    let leftUpperOffset = 0, leftLowerOffset = 0, rightUpperOffset = 0, rightLowerOffset = 0;
+    
+    // 수평
+    if (!isVertical) {
+      let leftPoint = isRightward ? { x: wall.x1, y: wall.y1 } : { x: wall.x2, y: wall.y2 };
+      let rightPoint = isRightward ? { x: wall.x2, y: wall.y2 } : { x: wall.x1, y: wall.y1 };
+
+      const leftIntersectingWalls = findIntersectingWalls(leftPoint, wallId, false);
+      const rightIntersectingWalls = findIntersectingWalls(rightPoint, wallId, false);
+
+      const leftUpperWalls = leftIntersectingWalls.filter(w => w.isUpper);
+      const leftLowerWalls = leftIntersectingWalls.filter(w => w.isLower);
+      const rightUpperWalls = rightIntersectingWalls.filter(w => w.isUpper);
+      const rightLowerWalls = rightIntersectingWalls.filter(w => w.isLower);
+
+      if (leftUpperWalls.length > 0 && leftLowerWalls.length > 0) {
+        upperLeftOffset -= leftUpperWalls[0].thickness / 2;
+        lowerLeftOffset -= leftLowerWalls[0].thickness / 2;
+      } else if (leftUpperWalls.length > 0) {
+        upperLeftOffset -= leftUpperWalls[0].thickness / 2;
+        lowerLeftOffset += leftUpperWalls[0].thickness / 2;
+      } else if (leftLowerWalls.length > 0) {
+        upperLeftOffset += leftLowerWalls[0].thickness / 2;
+        lowerLeftOffset -= leftLowerWalls[0].thickness / 2;
+      }
+
+      if (rightUpperWalls.length > 0 && rightLowerWalls.length > 0) {
+        upperRightOffset -= rightUpperWalls[0].thickness / 2;
+        lowerRightOffset -= rightLowerWalls[0].thickness / 2;
+      } else if (rightUpperWalls.length > 0) {
+        upperRightOffset -= rightUpperWalls[0].thickness / 2;
+        lowerRightOffset += rightUpperWalls[0].thickness / 2;
+      } else if (rightLowerWalls.length > 0) {
+        upperRightOffset += rightLowerWalls[0].thickness / 2;
+        lowerRightOffset -= rightLowerWalls[0].thickness / 2;
+      }
+    // 수직
+    } else {
+      let upperPoint = isUpward ? { x: wall.x2, y: wall.y2 } : { x: wall.x1, y: wall.y1 };
+      let lowerPoint = isUpward ? { x: wall.x1, y: wall.y1 } : { x: wall.x2, y: wall.y2 };
+      const upperIntersectingWalls = findIntersectingWalls(upperPoint, wallId, true);
+      const lowerIntersectingWalls = findIntersectingWalls(lowerPoint, wallId, true);
+    
+      const upperLeftWalls = upperIntersectingWalls.filter(w => w.isLeftward);
+      const upperRightWalls = upperIntersectingWalls.filter(w => w.isRightward);
+      const lowerLeftWalls = lowerIntersectingWalls.filter(w => w.isLeftward);
+      const lowerRightWalls = lowerIntersectingWalls.filter(w => w.isRightward);
+    
+      if (upperLeftWalls.length > 0 && upperRightWalls.length > 0) {
+        leftUpperOffset -= upperLeftWalls[0].thickness / 2;
+        rightUpperOffset -= upperRightWalls[0].thickness / 2;
+      } else if (upperLeftWalls.length > 0) {
+        leftUpperOffset -= upperLeftWalls[0].thickness / 2;
+        rightUpperOffset += upperLeftWalls[0].thickness / 2;
+      } else if (upperRightWalls.length > 0) {
+        leftUpperOffset += upperRightWalls[0].thickness / 2;
+        rightUpperOffset -= upperRightWalls[0].thickness / 2;
+      }
+    
+      if (lowerLeftWalls.length > 0 && lowerRightWalls.length > 0) {
+        leftLowerOffset -= lowerLeftWalls[0].thickness / 2;
+        rightLowerOffset -= lowerRightWalls[0].thickness / 2;
+      } else if (lowerLeftWalls.length > 0) {
+        leftLowerOffset -= lowerLeftWalls[0].thickness / 2;
+        rightLowerOffset += lowerLeftWalls[0].thickness / 2;
+      } else if (lowerRightWalls.length > 0) {
+        leftLowerOffset += lowerRightWalls[0].thickness / 2;
+        rightLowerOffset -= lowerRightWalls[0].thickness / 2;
+      }
+    }
     
     // 기존 요소들 제거
     draw.find(`.length-label[data-id='${wall.id}']`).forEach(label => label.remove());
@@ -453,90 +555,121 @@ export const useFloorPlanStore = defineStore("floorPlanStore", () => {
       const leftLabelGroup = draw.group().addClass('length-label').attr('data-id', `${wall.id}-left`);
       const rightLabelGroup = draw.group().addClass('length-label').attr('data-id', `${wall.id}-right`);
       
-      // 왼쪽 텍스트와 연결선
-      const leftLabel = leftLabelGroup.text(`${length}mm`)
-        .font({ size: fontSize, anchor: 'middle' })
-        .center(midX - offset, midY)
-        .rotate(90, midX - offset, midY);
-      
-      // 오른쪽 텍스트와 연결선
-      const rightLabel = rightLabelGroup.text(`${length}mm`)
-        .font({ size: fontSize, anchor: 'middle' })
-        .center(midX + offset, midY)
-        .rotate(90, midX + offset, midY);
+      const leftLength = length + (leftUpperOffset + leftLowerOffset);
+      const rightLength = length + (rightUpperOffset + rightLowerOffset);
 
       const isUpward = wall.y2 < wall.y1;
       const arrowAngle = Math.PI * 0.5;
 
-      // 왼쪽 연결선
-      drawDimensionLine(
-        { x: midX - offset, y: wall.y1 },
-        { x: midX - offset, y: midY + dimensionLineOffset }
+      let upperPoint = isUpward ? { x: wall.x2, y: wall.y2 } : { x: wall.x1, y: wall.y1 };
+      let lowerPoint = isUpward ? { x: wall.x1, y: wall.y1 } : { x: wall.x2, y: wall.y2 };
+
+      const leftDimensionLineOffset = Math.min(
+        maxOffset, 
+        fontSize * (0.5 + Math.log10(leftLength) / 2)
       );
-      drawDimensionLine(
-        { x: midX - offset, y: midY - dimensionLineOffset },
-        { x: midX - offset, y: wall.y2 }
-      );
-      
-      // 오른쪽 연결선
-      drawDimensionLine(
-        { x: midX + offset, y: wall.y1 },
-        { x: midX + offset, y: midY + dimensionLineOffset }
-      );
-      drawDimensionLine(
-        { x: midX + offset, y: midY - dimensionLineOffset },
-        { x: midX + offset, y: wall.y2 }
+      const rightDimensionLineOffset = Math.min(
+        maxOffset, 
+        fontSize * (0.5 + Math.log10(rightLength) / 2)
       );
       
-      // 화살표 추가
-      drawArrow(midX - offset, wall.y1, arrowAngle, !isUpward);
-      drawArrow(midX - offset, wall.y2, arrowAngle, isUpward);
-      drawArrow(midX + offset, wall.y1, arrowAngle, !isUpward);
-      drawArrow(midX + offset, wall.y2, arrowAngle, isUpward);
-      
+      // 왼쪽 텍스트
+      const leftLabel = leftLabelGroup.text(`${leftLength}mm`)
+        .font({ size: fontSize, anchor: 'middle' })
+        .center(midX - offset, midY)
+        .rotate(90, midX - offset, midY);
+      // 오른쪽 텍스트
+      const rightLabel = rightLabelGroup.text(`${rightLength}mm`)
+        .font({ size: fontSize, anchor: 'middle' })
+        .center(midX + offset, midY)
+        .rotate(90, midX + offset, midY);
+      // 왼쪽 상단 연결선
+      drawDimensionLine(
+        { x: midX - offset, y: midY - leftDimensionLineOffset },
+        { x: midX - offset, y: upperPoint.y - leftUpperOffset }
+      );
+      // // 왼쪽 하단 연결선
+      drawDimensionLine(
+        { x: midX - offset, y: midY + leftDimensionLineOffset },
+        { x: midX - offset, y: lowerPoint.y + leftLowerOffset }
+      );
+      // 오른쪽 상단 연결선
+      drawDimensionLine(
+        { x: midX + offset, y: midY - rightDimensionLineOffset },
+        { x: midX + offset, y: upperPoint.y - rightUpperOffset }
+      );
+      // 오른쪽 하단 연결선
+      drawDimensionLine(
+        { x: midX + offset, y: midY + rightDimensionLineOffset },
+        { x: midX + offset, y: lowerPoint.y + rightLowerOffset }
+      );
+      // 왼쪽 상단 화살표
+      drawArrow(midX - offset, upperPoint.y - leftUpperOffset, arrowAngle, true);
+      // 왼쪽 하단 화살표
+      drawArrow(midX - offset, lowerPoint.y + leftLowerOffset, arrowAngle, false);
+      // 우측 상단 화살표
+      drawArrow(midX + offset, upperPoint.y - rightUpperOffset, arrowAngle, true);
+      // 우측 하단 화살표
+      drawArrow(midX + offset, lowerPoint.y + rightLowerOffset, arrowAngle, false);
     } else {
       // 가로 벽 (상단/하단 분리)
       const topLabelGroup = draw.group().addClass('length-label').attr('data-id', `${wall.id}-top`);
       const bottomLabelGroup = draw.group().addClass('length-label').attr('data-id', `${wall.id}-bottom`);
       
-      // 상단 텍스트와 연결선
-      const topLabel = topLabelGroup.text(`${length}mm`)
-        .font({ size: fontSize, anchor: 'middle' })
-        .center(midX, midY - offset);
-      
-      // 하단 텍스트와 연결선
-      const bottomLabel = bottomLabelGroup.text(`${length}mm`)
-        .font({ size: fontSize, anchor: 'middle' })
-        .center(midX, midY + offset);
-        
-      const isRightward = wall.x2 > wall.x1;
+      const upperLength = length + (upperLeftOffset + upperRightOffset);
+      const lowerLength = length + (lowerLeftOffset + lowerRightOffset);
+
+      const isRightward = wall.x1 < wall.x2;
       const arrowAngle = 0;
 
-      // 상단 연결선
-      drawDimensionLine(
-        { x: wall.x1, y: midY - offset },
-        { x: midX - dimensionLineOffset, y: midY - offset }
+      let rightPoint = isRightward ? { x: wall.x2, y: wall.y2 } : { x: wall.x1, y: wall.y1 };
+      let leftPoint = isRightward ? { x: wall.x1, y: wall.y1 } : { x: wall.x2, y: wall.y2 };
+
+      const upperDimensionLineOffset = Math.min(
+        maxOffset, 
+        fontSize * (0.5 + Math.log10(upperLength) / 2)
       );
-      drawDimensionLine(
-        { x: midX + dimensionLineOffset, y: midY - offset },
-        { x: wall.x2, y: midY - offset }
-      );
-      
-      // 하단 연결선
-      drawDimensionLine(
-        { x: wall.x1, y: midY + offset },
-        { x: midX - dimensionLineOffset, y: midY + offset }
-      );
-      drawDimensionLine(
-        { x: midX + dimensionLineOffset, y: midY + offset },
-        { x: wall.x2, y: midY + offset }
+      const lowerDimensionLineOffset = Math.min(
+        maxOffset, 
+        fontSize * (0.5 + Math.log10(lowerLength) / 2)
       );
 
-      // 화살표 추가
-      drawArrow(wall.x1, midY - offset, arrowAngle, isRightward);
-      drawArrow(wall.x2, midY - offset, arrowAngle, !isRightward);
-      drawArrow(wall.x1, midY + offset, arrowAngle, isRightward);
-      drawArrow(wall.x2, midY + offset, arrowAngle, !isRightward);
+      // 상단 텍스트
+      const topLabel = topLabelGroup.text(`${upperLength}mm`)
+        .font({ size: fontSize, anchor: 'middle' })
+        .center(midX, midY - offset);
+      // 하단 텍스트
+      const bottomLabel = bottomLabelGroup.text(`${lowerLength}mm`)
+        .font({ size: fontSize, anchor: 'middle' })
+        .center(midX, midY + offset);
+      // 상단 좌측 연결선
+      drawDimensionLine(
+        { x: midX - upperDimensionLineOffset, y: midY - offset },
+        { x: leftPoint.x - upperLeftOffset, y: midY - offset }
+      );
+      // 상단 우측 연결선
+      drawDimensionLine(
+        { x: midX + upperDimensionLineOffset, y: midY - offset },
+        { x: rightPoint.x + upperRightOffset, y: midY - offset }
+      );
+      // 하단 좌측 연결선
+      drawDimensionLine(
+        { x: midX - lowerDimensionLineOffset, y: midY + offset },
+        { x: leftPoint.x - lowerLeftOffset, y: midY + offset }
+      );
+      // 하단 우측 연결선
+      drawDimensionLine(
+        { x: midX + lowerDimensionLineOffset, y: midY + offset },
+        { x: rightPoint.x + lowerRightOffset, y: midY + offset }
+      );
+      // 상단 좌측 화살표
+      drawArrow(leftPoint.x - upperLeftOffset, midY - offset, arrowAngle, true);
+      // 상단 우측 화살표
+      drawArrow(rightPoint.x + upperRightOffset, midY - offset, arrowAngle, false);
+      // 하단 좌측 화살표
+      drawArrow(leftPoint.x - lowerLeftOffset, midY + offset, arrowAngle, true);
+      // 하단 우측 화살표
+      drawArrow(rightPoint.x + lowerRightOffset, midY + offset, arrowAngle, false);
     }
   };
 
