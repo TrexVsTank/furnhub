@@ -1,8 +1,8 @@
 <!-- src/views/FloorPlanEditor.vue -->
 <script setup>
 import { ref, onMounted } from "vue";
-import "@/styles/global.scss";
-import "@/styles/FloorPlanEditor.scss";
+import "@/styles/global.css";
+import "@/styles/FloorPlanEditor.css";
 import { useFloorPlanStore } from "@/stores/floorPlanStore";
 
 const store = useFloorPlanStore();

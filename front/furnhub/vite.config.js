@@ -9,7 +9,7 @@ export default defineConfig({
   plugins: [vue()],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src"), // @를 src 폴더로 매핑
+      "@": path.resolve(__dirname, "./src"),
     },
   },
   logLevel: "info",
@@ -17,7 +17,7 @@ export default defineConfig({
     outDir: "dist",
   },
   server: {
-    host: '0.0.0.0', // 외부 접속 허용
-    port: 8081,      // 기본 포트 설정
+    host: '0.0.0.0',
+    port: 8081,
   },
 });

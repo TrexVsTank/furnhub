@@ -1,0 +1,32 @@
+.editor {
+    display: flex;
+    height: 100vh;
+    width: 100%;
+    overflow: hidden; /* 스크롤 제거 */
+  }
+  
+  .sidebar {
+    width: 200px;
+    height: 100%;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    border: 1px solid #000
+  }
+  
+  button {
+    padding: 10px;
+    cursor: pointer;
+  }
+  
+  .sidebar button:hover {
+    background-color: #DDDDDD;
+  }
+  
+  .canvas {
+    flex: 1;
+    user-select: none; /* 기본 드래그 선택 방지 */
+    -webkit-user-drag: none; /* 브라우저 기본 드래그 방지 */
+  }
+  
